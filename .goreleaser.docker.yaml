@@ -1,0 +1,54 @@
+project_name: baton-cloudflare-zero-trust
+builds:
+  - binary: baton-cloudflare-zero-trust
+    env:
+      - CGO_ENABLED=0
+    id: linux
+    main: ./cmd/baton-cloudflare-zero-trust
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+dockers:
+  - use: buildx
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/conductorone/baton-cloudflare-zero-trust:{{ .Version }}-amd64"
+      - "ghcr.io/conductorone/baton-cloudflare-zero-trust:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=baton-cloudflare-zero-trust"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/conductorone/baton-cloudflare-zero-trust"
+  - use: buildx
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/conductorone/baton-cloudflare-zero-trust:{{ .Version }}-arm64"
+      - "ghcr.io/conductorone/baton-cloudflare-zero-trust:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64/v8"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=baton-cloudflare-zero-trust"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source=https://github.com/conductorone/baton-cloudflare-zero-trust"
+docker_manifests:
+  - name_template: ghcr.io/conductorone/baton-cloudflare-zero-trust:{{ .Version }}
+    image_templates:
+      - ghcr.io/conductorone/baton-cloudflare-zero-trust:{{ .Version }}-amd64
+      - ghcr.io/conductorone/baton-cloudflare-zero-trust:{{ .Version }}-arm64
+  - name_template: ghcr.io/conductorone/baton-cloudflare-zero-trust:latest
+    image_templates:
+      - ghcr.io/conductorone/baton-cloudflare-zero-trust:latest-amd64
+      - ghcr.io/conductorone/baton-cloudflare-zero-trust:latest-arm64
+checksum:
+  disable: true
+release:
+  disable: true
+changelog:
+  skip: true
