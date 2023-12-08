@@ -3,7 +3,7 @@ module github.com/conductorone/baton-cloudflare-zero-trust
 go 1.20
 
 require (
-	github.com/conductorone/baton-sdk v0.1.13
+	github.com/conductorone/baton-sdk v0.1.14
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	go.uber.org/zap v1.26.0
 )

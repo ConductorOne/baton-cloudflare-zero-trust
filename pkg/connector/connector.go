@@ -4,17 +4,21 @@ import (
 	"context"
 	"io"
 
+	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
-type Connector struct{}
+type Connector struct {
+	client    *cloudflare.API
+	accountId string
+}
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{
-		newUserBuilder(),
+		newUserBuilder(d.client, d.accountId),
 	}
 }
 
@@ -39,6 +43,14 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context) (*Connector, error) {
-	return &Connector{}, nil
+func New(ctx context.Context, apiKey, accountId, email string) (*Connector, error) {
+	client, err := cloudflare.New(apiKey, email)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Connector{
+		client:    client,
+		accountId: accountId,
+	}, nil
 }
