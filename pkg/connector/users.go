@@ -37,7 +37,13 @@ func newUserResource(ctx context.Context, user cloudflare.AccessUser) (*v2.Resou
 		rs.WithUserLogin(user.Email),
 	}
 
-	resource, err := rs.NewUserResource(user.Name, userResourceType, user.ID, userTraits)
+	displayName := user.Name
+
+	if user.Name == "" {
+		displayName = user.Email
+	}
+
+	resource, err := rs.NewUserResource(displayName, userResourceType, user.ID, userTraits)
 	if err != nil {
 		return nil, err
 	}

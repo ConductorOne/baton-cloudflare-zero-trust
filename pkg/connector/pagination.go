@@ -43,10 +43,6 @@ func getPageFromPageToken(token string) (int, error) {
 	return int(page), nil
 }
 
-func isLastPage(count int, pageSize int) bool {
-	return count < pageSize
-}
-
 func getPageTokenFromPage(bag *pagination.Bag, page int) (string, error) {
 	nextPage := fmt.Sprintf("%d", page)
 	pageToken, err := bag.NextToken(nextPage)
