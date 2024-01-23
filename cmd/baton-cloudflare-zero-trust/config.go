@@ -48,7 +48,7 @@ func validateConfig(ctx context.Context, cfg *config) error {
 }
 
 func cmdFlags(cmd *cobra.Command) {
-	cmd.PersistentFlags().String("api-taken", "", "Cloudflare API token ($BATON_API_TOKEN)")
+	cmd.PersistentFlags().String("api-token", "", "Cloudflare API token ($BATON_API_TOKEN)")
 	cmd.PersistentFlags().String("api-key", "", "Cloudflare API key ($BATON_API_KEY)")
 	cmd.PersistentFlags().String("account-id", "", "Cloudflare account ID ($BATON_ACCOUNT_ID)")
 	cmd.PersistentFlags().String("email", "", "Cloudflare account email ($BATON_EMAIL)")
