@@ -42,8 +42,14 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, apiKey, accountId, email string) (*Connector, error) {
-	client, err := cloudflare.New(apiKey, email)
+func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*Connector, error) {
+	var client *cloudflare.API
+	var err error
+	if apiToken == "" {
+		client, err = cloudflare.New(apiKey, email)
+	} else {
+		client, err = cloudflare.NewWithAPIToken(apiToken)
+	}
 	if err != nil {
 		return nil, err
 	}
