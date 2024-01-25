@@ -2,6 +2,7 @@ package connector
 
 import (
 	"context"
+	"time"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -35,6 +36,20 @@ func newUserResource(ctx context.Context, user cloudflare.AccessUser) (*v2.Resou
 		rs.WithUserProfile(profile),
 		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
 		rs.WithUserLogin(user.Email),
+		rs.WithEmail(user.Email, true),
+	}
+
+	if user.LastSuccessfulLogin != "" {
+		loginTime, err := time.Parse("2006-01-02T15:04:05Z", user.LastSuccessfulLogin)
+		if err != nil {
+			userTraits = append(userTraits, rs.WithLastLogin(loginTime))
+		}
+	}
+	if user.CreatedAt != "" {
+		createdAt, err := time.Parse("2006-01-02T15:04:05.000000Z", user.CreatedAt)
+		if err != nil {
+			userTraits = append(userTraits, rs.WithCreatedAt(createdAt))
+		}
 	}
 
 	displayName := user.Name
