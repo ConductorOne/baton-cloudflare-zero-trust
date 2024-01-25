@@ -125,9 +125,9 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 		return nil, fmt.Errorf("baton-cloudflare-zero-trust: only users can be granted group membership")
 	}
 
-	email, err := getValueFromUserTrait(principal, "email")
+	email, err := getEmailFromUserTrait(principal)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get email from user trait profile")
+		return nil, wrapError(err, "unable to get email from user trait")
 	}
 
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), entitlement.Resource.Id.Resource)
@@ -166,9 +166,9 @@ func (g *groupBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations
 		return nil, fmt.Errorf("baton-cloudflare-zero-trust: only users can have group membership revoked")
 	}
 
-	email, err := getValueFromUserTrait(principal, "email")
+	email, err := getEmailFromUserTrait(principal)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get email from user trait profile")
+		return nil, wrapError(err, "unable to get email from user trait")
 	}
 
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), entitlement.Resource.Id.Resource)

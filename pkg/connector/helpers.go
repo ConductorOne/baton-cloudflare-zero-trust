@@ -2,6 +2,8 @@ package connector
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -55,4 +57,29 @@ func getValueFromUserTrait(resource *v2.Resource, profileField string) (string, 
 	}
 
 	return value, nil
+}
+
+func getEmailFromUserTrait(resource *v2.Resource) (string, error) {
+	trait, err := rs.GetUserTrait(resource)
+	if err != nil {
+		return "", err
+	}
+
+	emails := trait.GetEmails()
+	for _, email := range emails {
+		if email.IsPrimary {
+			return email.Address, nil
+		}
+	}
+
+	email, err := getValueFromUserTrait(resource, "email")
+	if err == nil {
+		return email, nil
+	}
+
+	parts := strings.SplitN(resource.DisplayName, "@", 2)
+	if len(parts) != 2 {
+		return "", fmt.Errorf("unable to get email from user trait profile")
+	}
+	return resource.DisplayName, nil
 }
