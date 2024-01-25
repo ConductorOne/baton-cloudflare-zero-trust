@@ -41,13 +41,13 @@ func newUserResource(ctx context.Context, user cloudflare.AccessUser) (*v2.Resou
 
 	if user.LastSuccessfulLogin != "" {
 		loginTime, err := time.Parse("2006-01-02T15:04:05Z", user.LastSuccessfulLogin)
-		if err != nil {
+		if err == nil {
 			userTraits = append(userTraits, rs.WithLastLogin(loginTime))
 		}
 	}
 	if user.CreatedAt != "" {
 		createdAt, err := time.Parse("2006-01-02T15:04:05.000000Z", user.CreatedAt)
-		if err != nil {
+		if err == nil {
 			userTraits = append(userTraits, rs.WithCreatedAt(createdAt))
 		}
 	}
