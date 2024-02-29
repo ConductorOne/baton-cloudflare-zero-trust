@@ -9,10 +9,6 @@ on:
 jobs:
   calculate-capabilities:
     runs-on: ubuntu-latest
-    env:
-        BATON_API_KEY: ${{ secrets.BATON_API_KEY }}
-        BATON_EMAIL: ${{ secrets.BATON_EMAIL }}
-        BATON_ACCOUNT_ID: ${{ secrets.BATON_ACCOUNT_ID }}
 
     steps:
       - name: Checkout code
