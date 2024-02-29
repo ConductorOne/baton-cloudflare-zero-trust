@@ -57,7 +57,8 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 	if err != nil {
 		return nil, "", nil, wrapError(err, "failed to list access groups")
 	}
-
+	fmt.Println("groups")
+	fmt.Println(groups)
 	resources := make([]*v2.Resource, 0, len(groups))
 	for _, group := range groups {
 		groupCopy := group
