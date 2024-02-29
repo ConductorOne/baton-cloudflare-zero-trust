@@ -28,6 +28,10 @@ func validateConfig(ctx context.Context, cfg *config) error {
 		return fmt.Errorf("api-token cannot be used with api-key and email")
 	}
 
+	if cfg.ApiToken == "" && cfg.ApiKey == "" && cfg.Email == "" {
+		return fmt.Errorf("either api-token, or api-key and email is required")
+	}
+
 	if cfg.ApiToken != "" {
 		return nil
 	}
