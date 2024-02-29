@@ -2,7 +2,6 @@ package connector
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -44,19 +43,16 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 
 // New returns a new instance of the connector.
 func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*Connector, error) {
-	var client *cloudflare.API
-	var err error
-	fmt.Println("apiKey")
-	fmt.Println(apiKey)
-	fmt.Println("email")
-	fmt.Println(email)
-	fmt.Println("apiToken")
-	fmt.Println(apiToken)
+	var (
+		client *cloudflare.API
+		err    error
+	)
 	if apiKey != "" && email != "" && apiToken == "" {
 		client, err = cloudflare.New(apiKey, email)
 	} else {
 		client, err = cloudflare.NewWithAPIToken(apiToken)
 	}
+
 	if err != nil {
 		return nil, err
 	}

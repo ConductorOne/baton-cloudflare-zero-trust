@@ -38,16 +38,9 @@ func main() {
 
 func getConnector(ctx context.Context, cfg *config) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
-	fmt.Println("cfg.ApiKey")
-	fmt.Println(cfg.ApiKey)
-	fmt.Println("cfg.Email")
-	fmt.Println(cfg.Email)
-	fmt.Println("cfg.ApiToken")
-	fmt.Println(cfg.ApiToken)
+
 	cb, err := connector.New(ctx, cfg.AccountID, cfg.ApiToken, cfg.ApiKey, cfg.Email)
 	if err != nil {
-		l.Error("Values : ", zap.Any("ApiKey", cfg.ApiKey),
-			zap.Any("Email", cfg.Email), zap.Any("ApiToken", cfg.ApiToken))
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
 	}
