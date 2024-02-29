@@ -24,23 +24,23 @@ jobs:
           go-version: 1.22.0
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: Build baton-baton-cloudflare-zero-trust
-        run: go build ./cmd/baton-baton-cloudflare-zero-trust
-      - name: Run baton-baton-cloudflare-zero-trust-cmd
-        run: ./baton-baton-cloudflare-zero-trust 
+      - name: Build baton-cloudflare-zero-trust
+        run: go build ./cmd/baton-cloudflare-zero-trust
+      - name: Run baton-cloudflare-zero-trust-cmd
+        run: ./baton-cloudflare-zero-trust
       - name: Revoke grants
         if: ${{ env.REVOKE_GRANT }} != ''
         run: |
           echo "Syncing resources..."
-          ./baton-baton-cloudflare-zero-trust
+          ./baton-cloudflare-zero-trust
           echo "Testing revoking"
-          ./baton-baton-cloudflare-zero-trust --log-level=debug --revoke-grant ${{ env.REVOKE_GRANT }}
+          ./baton-cloudflare-zero-trustt --log-level=debug --revoke-grant ${{ env.REVOKE_GRANT }}
       - name: Grant entitlements
         if: ${{ env.GRANT_ENTITLEMENT }} != '' && ${{ env.GRANT_PRINCIPAL }} != '' && ${{ env.GRANT_PRINCIPAL_TYPE }} != ''
         run: |
           echo "Syncing resources..."
-          ./baton-baton-cloudflare-zero-trust
+          ./baton-cloudflare-zero-trust
           echo "Testing provisioning"
-          ./baton-baton-cloudflare-zero-trust --log-level=debug  --grant-entitlement ${{ env.GRANT_ENTITLEMENT }} --grant-principal ${{ env.GRANT_PRINCIPAL }} --grant-principal-type ${{ env.GRANT_PRINCIPAL_TYPE }}
+          ./baton-cloudflare-zero-trust --log-level=debug  --grant-entitlement ${{ env.GRANT_ENTITLEMENT }} --grant-principal ${{ env.GRANT_PRINCIPAL }} --grant-principal-type ${{ env.GRANT_PRINCIPAL_TYPE }}
       - name: List Resources
         run: docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
