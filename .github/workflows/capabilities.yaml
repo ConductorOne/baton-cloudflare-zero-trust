@@ -25,7 +25,7 @@ jobs:
         run: go build -o connector ./cmd/baton-cloudflare-zero-trust
 
       - name: Run and save output
-        run: ./connector capabilities > baton_capabilities.json
+        run: ./connector --api-key ${{ secrets.BATON_API_KEY }} --email ${{ secrets.BATON_EMAIL }} capabilities > baton_capabilities.json
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
