@@ -29,7 +29,7 @@ jobs:
       - name: Run baton-cloudflare-zero-trust-cmd
         run: ./baton-cloudflare-zero-trust
       - name: Revoke grants
-        if: ${{ env.REVOKE_GRANT }} != ''
+        if: env.REVOKE_GRANT != ''
         run: |
           echo "Syncing resources..."
           ./baton-cloudflare-zero-trust
