@@ -2,7 +2,6 @@ package connector
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
@@ -74,14 +73,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 	if err != nil {
 		return nil, "", nil, err
 	}
-	fmt.Println("o.accountId")
-	fmt.Println(o.accountId)
-	fmt.Println("o.client.APIEmail")
-	fmt.Println(o.client.APIEmail)
-	fmt.Println("o.client.APIKey")
-	fmt.Println(o.client.APIKey)
-	fmt.Println("o.client.APIToken")
-	fmt.Println(o.client.APIToken)
+
 	users, info, err := o.client.ListAccessUsers(ctx, cloudflare.AccountIdentifier(o.accountId), cloudflare.AccessUserParams{
 		ResultInfo: cloudflare.ResultInfo{
 			Page:    page,
@@ -91,8 +83,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 	if err != nil {
 		return nil, "", nil, wrapError(err, "failed to list users")
 	}
-	fmt.Println("--- users ---")
-	fmt.Println(users)
+
 	resources := make([]*v2.Resource, 0, len(users))
 	for _, user := range users {
 		resource, err := newUserResource(ctx, user)
