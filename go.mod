@@ -3,8 +3,10 @@ module github.com/conductorone/baton-cloudflare-zero-trust
 go 1.20
 
 require (
+	github.com/cloudflare/cloudflare-go v0.83.0
 	github.com/conductorone/baton-sdk v0.1.14
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
+	github.com/spf13/cobra v1.8.0
 	go.uber.org/zap v1.26.0
 )
 
@@ -29,7 +31,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.26.2 // indirect
 	github.com/aws/smithy-go v1.18.1 // indirect
 	github.com/benbjohnson/clock v1.3.5 // indirect
-	github.com/cloudflare/cloudflare-go v0.83.0 // indirect
 	github.com/doug-martin/goqu/v9 v9.19.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.0.2 // indirect
@@ -63,7 +64,6 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
-	github.com/spf13/cobra v1.8.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.18.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
