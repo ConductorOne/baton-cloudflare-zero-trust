@@ -170,62 +170,13 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 	return rv, nextPage, nil, nil
 }
 
-// func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
-// 	l := ctxzap.Extract(ctx)
+func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
+	return nil, nil
+}
 
-// 	if principal.Id.ResourceType != resourceTypeTeam.Id {
-// 		l.Warn(
-// 			"baton-zendesk: only team members can be granted role membership",
-// 			zap.String("principal_type", principal.Id.ResourceType),
-// 			zap.String("principal_id", principal.Id.Resource),
-// 		)
-// 		return nil, fmt.Errorf("baton-zendesk: only team members can be granted role membership")
-// 	}
-
-// 	userID, err := strconv.ParseInt(principal.Id.Resource, 10, 64)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	user, err := r.client.GetUser(ctx, userID)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	if user.Role == "end-user" {
-// 		l.Warn("user must be a team member",
-// 			zap.Int64("user", user.ID),
-// 			zap.String("user.Role", user.Role),
-// 		)
-// 		return nil, fmt.Errorf("user must be a team member")
-// 	}
-
-// 	roleID, err := strconv.ParseInt(entitlement.Resource.Id.Resource, 10, 64)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	roleMembershipOptions := zendesk.CustomRole{
-// 		Name: fmt.Sprintf("Custom Role %d ", roleID),
-// 	}
-// 	membership, err := r.client.CreateCustomRoleMembership(ctx, roleMembershipOptions)
-// 	if err != nil {
-// 		return nil, fmt.Errorf("zendesk-connector: failed to add team member to a group: %s", err.Error())
-// 	}
-
-// 	l.Warn("Role Membership has been created.",
-// 		zap.Int64("ID", membership.ID),
-// 		zap.String("Name", membership.Name),
-// 		zap.String("Configuration", fmt.Sprintf("%v", membership.Configuration)),
-// 		zap.Time("CreatedAt", membership.CreatedAt),
-// 	)
-
-// 	return nil, nil
-// }
-
-// func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
-// 	return nil, nil
-// }
+func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	return nil, nil
+}
 
 func newRoleBuilder(client *cloudflare.API, accountId string) *roleBuilder {
 	return &roleBuilder{
