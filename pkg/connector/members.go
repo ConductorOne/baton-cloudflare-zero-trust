@@ -72,7 +72,8 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 
 	resources := make([]*v2.Resource, 0, len(members))
 	for _, member := range members {
-		resource, err := getMemberResource(ctx, &member.User)
+		memberCopy := member
+		resource, err := getMemberResource(ctx, &memberCopy.User)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create user resource")
 		}
