@@ -16,4 +16,16 @@ var (
 		DisplayName: "Group",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
 	}
+	memberResourceType = &v2.ResourceType{
+		Id:          "member",
+		DisplayName: "Member",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	}
+	roleResourceType = &v2.ResourceType{
+		Id:          "role",
+		DisplayName: "Role",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_ROLE,
+		},
+	}
 )
