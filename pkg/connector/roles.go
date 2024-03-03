@@ -217,7 +217,7 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
 		err      error
-		memberID = principal.Id.Resource
+		memberId = principal.Id.Resource
 	)
 	l := ctxzap.Extract(ctx)
 
@@ -230,7 +230,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, fmt.Errorf("baton-cloudflare: only members can be granted role membership")
 	}
 
-	account, err := r.GetAccountMember(ctx, r.accountId, memberID)
+	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		})
 	}
 
-	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberID, cloudflare.AccountMember{
+	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {
@@ -276,24 +276,24 @@ func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 		return nil, fmt.Errorf("couldflare-connector: only members can have role membership revoked")
 	}
 
-	memberID := principal.Id.Resource
-	roleID := entitlement.Resource.Id.Resource
+	memberId := principal.Id.Resource
+	roleId := entitlement.Resource.Id.Resource
 
-	account, err := r.GetAccountMember(ctx, r.accountId, memberID)
+	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
 	if err != nil {
 		return nil, err
 	}
 
 	roles := []cloudflare.AccountRole{}
 	for _, role := range account.Result.Roles {
-		if roleID != role.ID {
+		if roleId != role.ID {
 			roles = append(roles, cloudflare.AccountRole{
 				ID: role.ID,
 			})
 		}
 	}
 
-	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberID, cloudflare.AccountMember{
+	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {
