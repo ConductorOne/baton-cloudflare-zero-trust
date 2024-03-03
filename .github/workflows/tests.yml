@@ -34,7 +34,7 @@ jobs:
           echo "Syncing resources..."
           ./baton-cloudflare-zero-trust
           echo "Testing revoking"
-          ./baton-cloudflare-zero-trustt --log-level=debug --revoke-grant ${{ env.REVOKE_GRANT }}
+          ./baton-cloudflare-zero-trust --log-level=debug --revoke-grant ${{ env.REVOKE_GRANT }}
       - name: Grant entitlements
         if: env.GRANT_ENTITLEMENT != '' && env.GRANT_PRINCIPAL != '' && env.GRANT_PRINCIPAL_TYPE != ''
         run: |
