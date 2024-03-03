@@ -262,6 +262,49 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 }
 
 func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
+
+	entitlement := grant.Entitlement
+	principal := grant.Principal
+
+	if principal.Id.ResourceType != memberResourceType.Id {
+		l.Warn(
+			"couldflare-connector: only members can have role membership revoked",
+			zap.String("principal_type", principal.Id.ResourceType),
+			zap.String("principal_id", principal.Id.Resource),
+		)
+		return nil, fmt.Errorf("couldflare-connector: only members can have role membership revoked")
+	}
+
+	memberID := principal.Id.Resource
+	roleID := entitlement.Resource.Id.Resource
+
+	account, err := r.GetAccountMember(ctx, r.accountId, memberID)
+	if err != nil {
+		return nil, err
+	}
+
+	roles := []cloudflare.AccountRole{}
+	for _, role := range account.Result.Roles {
+		if roleID != role.ID {
+			roles = append(roles, cloudflare.AccountRole{
+				ID: role.ID,
+			})
+		}
+	}
+
+	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberID, cloudflare.AccountMember{
+		Roles: roles,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	l.Warn("Role has been created.",
+		zap.String("ID", member.ID),
+		zap.String("Status", member.Status),
+	)
+
 	return nil, nil
 }
 
