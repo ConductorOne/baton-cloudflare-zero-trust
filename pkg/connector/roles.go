@@ -24,9 +24,7 @@ type roleBuilder struct {
 	accountId    string
 }
 
-const (
-	errMissingAccountID = "required missing account ID"
-)
+const errMissingAccountID = "required missing account ID"
 
 var (
 	ErrMissingAccountID = errors.New(errMissingAccountID)
@@ -160,10 +158,12 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 			if role.ID != resource.Id.Resource {
 				continue
 			}
+
 			ur, err := getMemberResource(ctx, &memberCopy)
 			if err != nil {
 				return nil, "", nil, fmt.Errorf("error creating team_member resource for role %s: %w", resource.Id.Resource, err)
 			}
+
 			gr := grant.NewGrant(resource, role.Name, ur.Id)
 			tr := grant.NewGrant(ur, role.Name, resource.Id)
 			rv = append(rv, gr, tr)
@@ -191,6 +191,7 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 	if accountID == "" {
 		return &cloudflare.AccountMemberDetailResponse{}, ErrMissingAccountID
 	}
+
 	requestURL := fmt.Sprintf("%s/accounts/%s/members/%s", r.client.BaseURL, accountID, memberID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {

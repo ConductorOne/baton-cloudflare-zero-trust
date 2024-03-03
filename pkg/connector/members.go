@@ -37,8 +37,7 @@ func getMemberResource(ctx context.Context, member *cloudflare.AccountMember) (*
 		rs.WithEmail(member.User.Email, true),
 	}
 
-	displayName := member.User.FirstName + " " + member.User.LastName
-
+	displayName := fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName)
 	if member.User.FirstName == "" {
 		displayName = member.User.Email
 	}
