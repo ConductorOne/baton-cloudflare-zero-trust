@@ -2,7 +2,10 @@ package connector
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -11,6 +14,8 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type roleBuilder struct {
@@ -19,8 +24,16 @@ type roleBuilder struct {
 	accountId    string
 }
 
-var roles []cloudflare.AccountRole
-var members []cloudflare.AccountMember
+const (
+	errMissingAccountID = "required missing account ID"
+	errUnmarshalError   = "error unmarshalling the JSON response"
+)
+
+var (
+	ErrMissingAccountID = errors.New(errMissingAccountID)
+	roles               []cloudflare.AccountRole
+	members             []cloudflare.AccountMember
+)
 
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return r.resourceType
@@ -148,7 +161,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 			if role.ID != resource.Id.Resource {
 				continue
 			}
-			ur, err := getMemberResource(ctx, &memberCopy.User)
+			ur, err := getMemberResource(ctx, &memberCopy)
 			if err != nil {
 				return nil, "", nil, fmt.Errorf("error creating team_member resource for role %s: %w", resource.Id.Resource, err)
 			}
@@ -170,7 +183,82 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 	return rv, nextPage, nil, nil
 }
 
+// GetAccountMember returns an account member
+func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, memberID string) (*cloudflare.AccountMemberDetailResponse, error) {
+	var (
+		client                    = &http.Client{}
+		accountMemberListResponse = &cloudflare.AccountMemberDetailResponse{}
+	)
+	if accountID == "" {
+		return &cloudflare.AccountMemberDetailResponse{}, ErrMissingAccountID
+	}
+	requestURL := fmt.Sprintf("%s/accounts/%s/members/%s", r.client.BaseURL, accountID, memberID)
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		fmt.Printf("client: could not create request: %s\n", err)
+	}
+
+	req.Header.Add("Accept", "application/json")
+	req.Header.Add("X-Auth-Email", r.client.APIEmail)
+	req.Header.Add("X-Auth-Key", r.client.APIKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return &cloudflare.AccountMemberDetailResponse{}, err
+	}
+
+	defer resp.Body.Close()
+	err = json.NewDecoder(resp.Body).Decode(accountMemberListResponse)
+	if err != nil {
+		return &cloudflare.AccountMemberDetailResponse{}, err
+	}
+
+	return accountMemberListResponse, err
+}
+
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
+	var (
+		err      error
+		memberID = principal.Id.Resource
+	)
+	l := ctxzap.Extract(ctx)
+
+	if principal.Id.ResourceType != memberResourceType.Id {
+		l.Warn(
+			"baton-cloudflare: only members can be granted role membership",
+			zap.String("principal_type", principal.Id.ResourceType),
+			zap.String("principal_id", principal.Id.Resource),
+		)
+		return nil, fmt.Errorf("baton-cloudflare: only members can be granted role membership")
+	}
+
+	account, err := r.GetAccountMember(ctx, r.accountId, memberID)
+	if err != nil {
+		return nil, err
+	}
+
+	roles := []cloudflare.AccountRole{
+		{
+			ID: entitlement.Resource.Id.Resource,
+		},
+	}
+	for _, role := range account.Result.Roles {
+		roles = append(roles, cloudflare.AccountRole{
+			ID: role.ID,
+		})
+	}
+
+	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberID, cloudflare.AccountMember{
+		Roles: roles,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	l.Warn("Role has been created.",
+		zap.String("ID", member.ID),
+		zap.String("Status", member.Status),
+	)
+
 	return nil, nil
 }
 

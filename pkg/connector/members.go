@@ -22,25 +22,25 @@ func (m *memberBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return m.resourceType
 }
 
-func getMemberResource(ctx context.Context, member *cloudflare.AccountMemberUserDetails) (*v2.Resource, error) {
+func getMemberResource(ctx context.Context, member *cloudflare.AccountMember) (*v2.Resource, error) {
 	profile := map[string]interface{}{
-		"login":      member.Email,
-		"first_name": member.FirstName,
-		"last_name":  member.LastName,
-		"email":      member.Email,
+		"login":      member.User.Email,
+		"first_name": member.User.FirstName,
+		"last_name":  member.User.LastName,
+		"email":      member.User.Email,
 	}
 
 	userTraits := []rs.UserTraitOption{
 		rs.WithUserProfile(profile),
 		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
-		rs.WithUserLogin(member.Email),
-		rs.WithEmail(member.Email, true),
+		rs.WithUserLogin(member.User.Email),
+		rs.WithEmail(member.User.Email, true),
 	}
 
-	displayName := member.FirstName + " " + member.LastName
+	displayName := member.User.FirstName + " " + member.User.LastName
 
-	if member.FirstName == "" {
-		displayName = member.Email
+	if member.User.FirstName == "" {
+		displayName = member.User.Email
 	}
 
 	resource, err := rs.NewUserResource(displayName, memberResourceType, member.ID, userTraits)
@@ -73,7 +73,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 	resources := make([]*v2.Resource, 0, len(members))
 	for _, member := range members {
 		memberCopy := member
-		resource, err := getMemberResource(ctx, &memberCopy.User)
+		resource, err := getMemberResource(ctx, &memberCopy)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create user resource")
 		}
@@ -119,8 +119,8 @@ func (m *memberBuilder) Entitlements(ctx context.Context, resource *v2.Resource,
 	for _, role := range roles {
 		options := []ent.EntitlementOption{
 			ent.WithGrantableTo(memberResourceType),
-			ent.WithDisplayName(fmt.Sprintf("%s Member %s", resource.DisplayName, memberRole)),
-			ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare member", memberRole, resource.DisplayName)),
+			ent.WithDisplayName(fmt.Sprintf("%s Member %s", resource.DisplayName, role.Name)),
+			ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare member", role.Name, resource.DisplayName)),
 		}
 
 		rv = append(rv, ent.NewAssignmentEntitlement(resource, role.Name, options...))
