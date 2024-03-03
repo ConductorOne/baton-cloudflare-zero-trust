@@ -26,7 +26,6 @@ type roleBuilder struct {
 
 const (
 	errMissingAccountID = "required missing account ID"
-	errUnmarshalError   = "error unmarshalling the JSON response"
 )
 
 var (
@@ -183,7 +182,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 	return rv, nextPage, nil, nil
 }
 
-// GetAccountMember returns an account member
+// GetAccountMember returns an account member.
 func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, memberID string) (*cloudflare.AccountMemberDetailResponse, error) {
 	var (
 		client                    = &http.Client{}
@@ -193,9 +192,9 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 		return &cloudflare.AccountMemberDetailResponse{}, ErrMissingAccountID
 	}
 	requestURL := fmt.Sprintf("%s/accounts/%s/members/%s", r.client.BaseURL, accountID, memberID)
-	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
-		fmt.Printf("client: could not create request: %s\n", err)
+		return &cloudflare.AccountMemberDetailResponse{}, err
 	}
 
 	req.Header.Add("Accept", "application/json")
