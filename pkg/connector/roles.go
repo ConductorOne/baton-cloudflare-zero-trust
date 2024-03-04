@@ -22,6 +22,7 @@ type roleBuilder struct {
 	resourceType *v2.ResourceType
 	client       *cloudflare.API
 	accountId    string
+	httpClient   *http.Client
 }
 
 const errMissingAccountID = "required missing account ID"
@@ -148,7 +149,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 			PerPage: resourcePageSize,
 		})
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list users")
+			return nil, "", nil, wrapError(err, "failed to list members")
 		}
 	}
 
@@ -161,12 +162,11 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 
 			ur, err := getMemberResource(ctx, &memberCopy)
 			if err != nil {
-				return nil, "", nil, fmt.Errorf("error creating team_member resource for role %s: %w", resource.Id.Resource, err)
+				return nil, "", nil, fmt.Errorf("error creating member resource for role %s: %w", resource.Id.Resource, err)
 			}
 
 			gr := grant.NewGrant(resource, role.Name, ur.Id)
-			tr := grant.NewGrant(ur, role.Name, resource.Id)
-			rv = append(rv, gr, tr)
+			rv = append(rv, gr)
 		}
 	}
 
@@ -184,14 +184,11 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 
 // GetAccountMember returns an account member.
 func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, memberID string) (*cloudflare.AccountMemberDetailResponse, error) {
-	var (
-		client                    = &http.Client{}
-		accountMemberListResponse = &cloudflare.AccountMemberDetailResponse{}
-	)
+	var accountMemberListResponse = &cloudflare.AccountMemberDetailResponse{}
 	if accountID == "" {
 		return &cloudflare.AccountMemberDetailResponse{}, ErrMissingAccountID
 	}
-
+	r.httpClient = &http.Client{}
 	requestURL := fmt.Sprintf("%s/accounts/%s/members/%s", r.client.BaseURL, accountID, memberID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
@@ -201,7 +198,7 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("X-Auth-Email", r.client.APIEmail)
 	req.Header.Add("X-Auth-Key", r.client.APIKey)
-	resp, err := client.Do(req)
+	resp, err := r.httpClient.Do(req)
 	if err != nil {
 		return &cloudflare.AccountMemberDetailResponse{}, err
 	}

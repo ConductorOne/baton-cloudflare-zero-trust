@@ -8,7 +8,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
-	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
@@ -51,7 +50,7 @@ func getMemberResource(ctx context.Context, member *cloudflare.AccountMember) (*
 }
 
 // List returns all the members of an account as resource objects.
-// Users include a UserTrait because they are the 'shape' of a standard user.
+// Members include a UserTrait because they are the 'shape' of a standard member.
 func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var info cloudflare.ResultInfo
 	bag, page, err := parsePageToken(pToken.Token, &v2.ResourceId{ResourceType: m.resourceType.Id})
@@ -65,7 +64,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 			PerPage: resourcePageSize,
 		})
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list users")
+			return nil, "", nil, wrapError(err, "failed to list members")
 		}
 	}
 
@@ -74,7 +73,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		memberCopy := member
 		resource, err := getMemberResource(ctx, &memberCopy)
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to create user resource")
+			return nil, "", nil, wrapError(err, "failed to create member resource")
 		}
 
 		resources = append(resources, resource)
@@ -94,38 +93,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 
 // Entitlements always returns an empty slice for users.
 func (m *memberBuilder) Entitlements(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	var rv []*v2.Entitlement
-	_, page, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: m.resourceType.Id})
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	if len(roles) == 0 {
-		accountID := cloudflare.ResourceContainer{
-			Identifier: m.accountId,
-		}
-		roles, err = m.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-			ResultInfo: cloudflare.ResultInfo{
-				Page:    page,
-				PerPage: resourcePageSize,
-			},
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list roles")
-		}
-	}
-
-	for _, role := range roles {
-		options := []ent.EntitlementOption{
-			ent.WithGrantableTo(memberResourceType),
-			ent.WithDisplayName(fmt.Sprintf("%s Member %s", resource.DisplayName, role.Name)),
-			ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare member", role.Name, resource.DisplayName)),
-		}
-
-		rv = append(rv, ent.NewAssignmentEntitlement(resource, role.Name, options...))
-	}
-
-	return rv, "", nil, nil
+	return nil, "", nil, nil
 }
 
 // Grants always returns an empty slice for users since they don't have any entitlements.
