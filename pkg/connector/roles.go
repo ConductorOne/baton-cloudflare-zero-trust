@@ -63,7 +63,7 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 }
 
 // List returns all the roles from the database as resource objects.
-// Roles include a RoleTrait because they are the 'shape' of a standard group.
+// Roles include a RoleTrait because they are the 'shape' of a standard role.
 func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	_, page, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
@@ -298,7 +298,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 		return nil, err
 	}
 
-	l.Warn("Role has been created.",
+	l.Warn("Role has been revoked.",
 		zap.String("ID", member.ID),
 		zap.String("Status", member.Status),
 	)
