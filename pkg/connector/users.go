@@ -22,7 +22,7 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 	return userResourceType
 }
 
-func newUserResource(ctx context.Context, user cloudflare.AccessUser) (*v2.Resource, error) {
+func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 	firstName, lastName := helpers.SplitFullName(user.Name)
 	profile := map[string]interface{}{
 		"login":       user.Email,
@@ -86,7 +86,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 
 	resources := make([]*v2.Resource, 0, len(users))
 	for _, user := range users {
-		resource, err := newUserResource(ctx, user)
+		resource, err := newUserResource(user)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create user resource")
 		}

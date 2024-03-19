@@ -21,7 +21,7 @@ func (m *memberBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return m.resourceType
 }
 
-func getMemberResource(ctx context.Context, member *cloudflare.AccountMember) (*v2.Resource, error) {
+func getMemberResource(member *cloudflare.AccountMember) (*v2.Resource, error) {
 	profile := map[string]interface{}{
 		"login":      member.User.Email,
 		"first_name": member.User.FirstName,
@@ -71,7 +71,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 	resources := make([]*v2.Resource, 0, len(members))
 	for _, member := range members {
 		memberCopy := member
-		resource, err := getMemberResource(ctx, &memberCopy)
+		resource, err := getMemberResource(&memberCopy)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create member resource")
 		}

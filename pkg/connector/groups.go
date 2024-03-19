@@ -96,13 +96,13 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, wrapError(err, "failed to list users")
 	}
 
-	groupGrants := getAccessIncludeEmails(ctx, group.Include)
+	groupGrants := getAccessIncludeEmails(group.Include)
 
 	var rv []*v2.Grant
 	for _, user := range users {
 		userCopy := user
 		if groupGrants != nil && groupContainsUser(user.Email, groupGrants) {
-			ur, err := newUserResource(ctx, userCopy)
+			ur, err := newUserResource(userCopy)
 			if err != nil {
 				return nil, "", nil, wrapError(err, "failed to create user resource")
 			}

@@ -38,7 +38,7 @@ func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 }
 
 // getRoleResource creates a new connector resource for a cloudflare role.
-func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceTypeRole *v2.ResourceType, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func getRoleResource(role cloudflare.AccountRole, resourceTypeRole *v2.ResourceType, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	profile := map[string]interface{}{
 		"role_id":   role.ID,
 		"role_name": role.Name,
@@ -87,7 +87,7 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *
 
 	resources := make([]*v2.Resource, 0, len(roles))
 	for _, role := range roles {
-		resource, err := getRoleResource(ctx, role, roleResourceType, parentId)
+		resource, err := getRoleResource(role, roleResourceType, parentId)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create role resource")
 		}
@@ -160,7 +160,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 				continue
 			}
 
-			ur, err := getMemberResource(ctx, &memberCopy)
+			ur, err := getMemberResource(&memberCopy)
 			if err != nil {
 				return nil, "", nil, fmt.Errorf("error creating member resource for role %s: %w", resource.Id.Resource, err)
 			}
