@@ -86,14 +86,33 @@ func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ 
 }
 
 func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+	var users []cloudflare.AccessUser
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, wrapError(err, "failed to get access group")
 	}
 
-	users, _, err := g.client.ListAccessUsers(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.AccessUserParams{})
+	_, page, err := parsePageToken(pToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list users")
+		return nil, "", nil, err
+	}
+
+	members, _, err = g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
+		Page:    page,
+		PerPage: resourcePageSize,
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list members")
+	}
+
+	for _, member := range members {
+		usr := member.User
+		au := cloudflare.AccessUser{
+			ID:    usr.ID,
+			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
+			Email: usr.Email,
+		}
+		users = append(users, au)
 	}
 
 	groupGrants := getAccessIncludeEmails(group.Include)
