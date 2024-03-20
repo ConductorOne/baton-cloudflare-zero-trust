@@ -70,19 +70,17 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *
 		return nil, "", nil, err
 	}
 
-	if len(roles) == 0 {
-		accountID := cloudflare.ResourceContainer{
-			Identifier: r.accountId,
-		}
-		roles, err = r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-			ResultInfo: cloudflare.ResultInfo{
-				Page:    page,
-				PerPage: resourcePageSize,
-			},
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list roles")
-		}
+	accountID := cloudflare.ResourceContainer{
+		Identifier: r.accountId,
+	}
+	roles, err = r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
+		ResultInfo: cloudflare.ResultInfo{
+			Page:    page,
+			PerPage: resourcePageSize,
+		},
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list roles")
 	}
 
 	resources := make([]*v2.Resource, 0, len(roles))

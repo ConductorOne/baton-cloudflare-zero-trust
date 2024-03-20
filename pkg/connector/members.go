@@ -59,14 +59,12 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		return nil, "", nil, err
 	}
 
-	if len(members) == 0 {
-		members, info, err = m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
-			Page:    page,
-			PerPage: resourcePageSize,
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list members")
-		}
+	members, info, err = m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
+		Page:    page,
+		PerPage: resourcePageSize,
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list members")
 	}
 
 	resources := make([]*v2.Resource, 0, len(members))
