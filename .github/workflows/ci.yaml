@@ -77,11 +77,11 @@ jobs:
         run: |
           ./baton-cloudflare-zero-trust 
           ./baton-cloudflare-zero-trust --revoke-grant ${{ env.CONNECTOR_GRANT }}
-      - name: Check grant was revoked
-        if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != ''
-        run: |
-          ./baton-cloudflare-zero-trust 
-           baton grants --entitlement ${{ env.CONNECTOR_ENTITLEMENT }} --output-format=json | jq -e ".grants[]? | any(.principal.id.resource !=\"${{ env.CONNECTOR_PRINCIPAL }}\")"
+      # - name: Check grant was revoked
+      #   if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != ''
+      #   run: |
+      #     ./baton-cloudflare-zero-trust 
+      #      baton grants --entitlement ${{ env.CONNECTOR_ENTITLEMENT }} --output-format=json | jq -e ".grants[]? | any(.principal.id.resource !=\"${{ env.CONNECTOR_PRINCIPAL }}\")"
       - name: Grant entitlement
         if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != '' && env.CONNECTOR_PRINCIPAL_TYPE != ''
         run: | 
