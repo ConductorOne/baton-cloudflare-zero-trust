@@ -42,7 +42,7 @@ func getMemberResource(member *cloudflare.AccountMember) (*v2.Resource, error) {
 		displayName = usr.Email
 	}
 
-	resource, err := rs.NewUserResource(displayName, memberResourceType, usr.ID, userTraits)
+	resource, err := rs.NewUserResource(displayName, memberResourceType, member.ID, userTraits)
 	if err != nil {
 		return nil, err
 	}

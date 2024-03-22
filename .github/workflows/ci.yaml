@@ -47,10 +47,10 @@ jobs:
         BATON_ACCOUNT_ID: ${{ secrets.BATON_ACCOUNT_ID }}
         BATON_LOG_LEVEL: 'debug'
         # Revoke grants variable
-        CONNECTOR_GRANT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics:member:9d9a62a5b834a8c9c5cf43cd234dfd4a'
+        CONNECTOR_GRANT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics:member:c03c9ac2229f0bf5d75ef307c10b3b17'
         # Grant entitlements variables
         CONNECTOR_ENTITLEMENT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics'
-        CONNECTOR_PRINCIPAL: '9d9a62a5b834a8c9c5cf43cd234dfd4a'
+        CONNECTOR_PRINCIPAL: 'c03c9ac2229f0bf5d75ef307c10b3b17'
         CONNECTOR_PRINCIPAL_TYPE: 'member'
     steps:
       - name: Install Go
