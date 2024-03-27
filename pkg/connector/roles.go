@@ -27,18 +27,14 @@ type roleBuilder struct {
 
 const errMissingAccountID = "required missing account ID"
 
-var (
-	ErrMissingAccountID = errors.New(errMissingAccountID)
-	roles               []cloudflare.AccountRole
-	members             []cloudflare.AccountMember
-)
+var ErrMissingAccountID = errors.New(errMissingAccountID)
 
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return r.resourceType
 }
 
 // getRoleResource creates a new connector resource for a cloudflare role.
-func getRoleResource(role cloudflare.AccountRole, resourceTypeRole *v2.ResourceType, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceTypeRole *v2.ResourceType, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	profile := map[string]interface{}{
 		"role_id":   role.ID,
 		"role_name": role.Name,
@@ -73,7 +69,7 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *
 	accountID := cloudflare.ResourceContainer{
 		Identifier: r.accountId,
 	}
-	roles, err = r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
+	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
 		ResultInfo: cloudflare.ResultInfo{
 			Page:    page,
 			PerPage: resourcePageSize,
@@ -85,7 +81,7 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *
 
 	resources := make([]*v2.Resource, 0, len(roles))
 	for _, role := range roles {
-		resource, err := getRoleResource(role, roleResourceType, parentId)
+		resource, err := getRoleResource(ctx, role, roleResourceType, parentId)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create role resource")
 		}
@@ -103,19 +99,17 @@ func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, t
 		return nil, "", nil, err
 	}
 
-	if len(roles) == 0 {
-		accountID := cloudflare.ResourceContainer{
-			Identifier: r.accountId,
-		}
-		roles, err = r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-			ResultInfo: cloudflare.ResultInfo{
-				Page:    page,
-				PerPage: resourcePageSize,
-			},
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list roles")
-		}
+	accountID := cloudflare.ResourceContainer{
+		Identifier: r.accountId,
+	}
+	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
+		ResultInfo: cloudflare.ResultInfo{
+			Page:    page,
+			PerPage: resourcePageSize,
+		},
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list roles")
 	}
 
 	for _, role := range roles {
@@ -141,14 +135,12 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 		return nil, "", nil, err
 	}
 
-	if len(members) == 0 {
-		members, info, err = r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
-			Page:    page,
-			PerPage: resourcePageSize,
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list members")
-		}
+	members, info, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
+		Page:    page,
+		PerPage: resourcePageSize,
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list members")
 	}
 
 	for _, member := range members {

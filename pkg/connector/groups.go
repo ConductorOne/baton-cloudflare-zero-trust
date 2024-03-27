@@ -100,7 +100,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	members, _, err = g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
+	members, _, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
 	})

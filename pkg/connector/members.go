@@ -59,7 +59,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		return nil, "", nil, err
 	}
 
-	members, info, err = m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
+	members, info, err := m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
 	})
