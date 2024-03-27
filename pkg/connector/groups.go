@@ -114,6 +114,9 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 			ID:    usr.ID,
 			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
 			Email: usr.Email,
+			AccessSeat: func(seat bool) *bool {
+				return &seat
+			}(false),
 		}
 		users = append(users, au)
 	}
