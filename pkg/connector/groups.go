@@ -86,7 +86,10 @@ func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ 
 }
 
 func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	var users []cloudflare.AccessUser
+	var (
+		users []cloudflare.AccessUser
+		rv    []*v2.Grant
+	)
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, wrapError(err, "failed to get access group")
@@ -116,8 +119,6 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 	}
 
 	groupGrants := getAccessIncludeEmails(group.Include)
-
-	var rv []*v2.Grant
 	for _, user := range users {
 		userCopy := user
 		if groupGrants != nil && groupContainsUser(user.Email, groupGrants) {

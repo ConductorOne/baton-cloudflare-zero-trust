@@ -25,11 +25,10 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 	firstName, lastName := helpers.SplitFullName(user.Name)
 	profile := map[string]interface{}{
-		"login":       user.Email,
-		"first_name":  firstName,
-		"last_name":   lastName,
-		"email":       user.Email,
-		"access_seat": *user.AccessSeat,
+		"login":      user.Email,
+		"first_name": firstName,
+		"last_name":  lastName,
+		"email":      user.Email,
 	}
 
 	userTraits := []rs.UserTraitOption{
