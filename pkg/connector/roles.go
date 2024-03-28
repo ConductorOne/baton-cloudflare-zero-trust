@@ -211,9 +211,8 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
-		err      error
-		userId   = principal.Id.Resource
-		memberId string
+		err    error
+		userId = principal.Id.Resource
 	)
 	l := ctxzap.Extract(ctx)
 
@@ -226,16 +225,9 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, fmt.Errorf("baton-cloudflare: only users can be granted role membership")
 	}
 
-	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	memberId, err := getMemberId(ctx, r, userId)
 	if err != nil {
-		return nil, wrapError(err, "failed to list user members")
-	}
-
-	for _, memberUser := range memberUsers {
-		if memberUser.User.ID == userId {
-			memberId = memberUser.ID
-			break
-		}
+		return nil, err
 	}
 
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
@@ -267,8 +259,22 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	return nil, nil
 }
 
+func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, error) {
+	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	if err != nil {
+		return "", wrapError(err, "failed to list user members")
+	}
+
+	for _, memberUser := range memberUsers {
+		if memberUser.User.ID == userId {
+			return memberUser.ID, nil
+		}
+	}
+
+	return "", nil
+}
+
 func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
-	var memberId string
 	l := ctxzap.Extract(ctx)
 	entitlement := grant.Entitlement
 	principal := grant.Principal
@@ -285,16 +291,9 @@ func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.
 	userId := principal.Id.Resource
 	roleId := entitlement.Resource.Id.Resource
 
-	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	memberId, err := getMemberId(ctx, r, userId)
 	if err != nil {
-		return nil, wrapError(err, "failed to list user members")
-	}
-
-	for _, memberUser := range memberUsers {
-		if memberUser.User.ID == userId {
-			memberId = memberUser.ID
-			break
-		}
+		return nil, err
 	}
 
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
