@@ -145,14 +145,21 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 
 	for _, member := range members {
 		for _, role := range member.Roles {
-			memberCopy := member
 			if role.ID != resource.Id.Resource {
 				continue
 			}
 
-			ur, err := getMemberResource(&memberCopy)
+			accUser := cloudflare.AccessUser{
+				ID:    member.User.ID,
+				Name:  fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
+				Email: member.User.Email,
+				AccessSeat: func(seat bool) *bool {
+					return &seat
+				}(false),
+			}
+			ur, err := newUserResource(accUser)
 			if err != nil {
-				return nil, "", nil, fmt.Errorf("error creating member resource for role %s: %w", resource.Id.Resource, err)
+				return nil, "", nil, wrapError(err, "failed to create user resource")
 			}
 
 			gr := grant.NewGrant(resource, role.Name, ur.Id)
@@ -205,17 +212,30 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
 		err      error
-		memberId = principal.Id.Resource
+		userId   = principal.Id.Resource
+		memberId string
 	)
 	l := ctxzap.Extract(ctx)
 
-	if principal.Id.ResourceType != memberResourceType.Id {
+	if principal.Id.ResourceType != userResourceType.Id {
 		l.Warn(
-			"baton-cloudflare: only members can be granted role membership",
+			"baton-cloudflare: only users can be granted role membership",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
 		)
-		return nil, fmt.Errorf("baton-cloudflare: only members can be granted role membership")
+		return nil, fmt.Errorf("baton-cloudflare: only users can be granted role membership")
+	}
+
+	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	if err != nil {
+		return nil, wrapError(err, "failed to list user members")
+	}
+
+	for _, memberUser := range memberUsers {
+		if memberUser.User.ID == userId {
+			memberId = memberUser.ID
+			break
+		}
 	}
 
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
@@ -223,10 +243,8 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	roles := []cloudflare.AccountRole{
-		{
-			ID: entitlement.Resource.Id.Resource,
-		},
+	roles := []cloudflare.AccountRole{{
+		ID: entitlement.Resource.Id.Resource},
 	}
 	for _, role := range account.Result.Roles {
 		roles = append(roles, cloudflare.AccountRole{
@@ -250,22 +268,34 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 }
 
 func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	var memberId string
 	l := ctxzap.Extract(ctx)
-
 	entitlement := grant.Entitlement
 	principal := grant.Principal
 
-	if principal.Id.ResourceType != memberResourceType.Id {
+	if principal.Id.ResourceType != userResourceType.Id {
 		l.Warn(
-			"couldflare-connector: only members can have role membership revoked",
+			"couldflare-connector: only users can have role membership revoked",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
 		)
-		return nil, fmt.Errorf("couldflare-connector: only members can have role membership revoked")
+		return nil, fmt.Errorf("couldflare-connector: only users can have role membership revoked")
 	}
 
-	memberId := principal.Id.Resource
+	userId := principal.Id.Resource
 	roleId := entitlement.Resource.Id.Resource
+
+	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	if err != nil {
+		return nil, wrapError(err, "failed to list user members")
+	}
+
+	for _, memberUser := range memberUsers {
+		if memberUser.User.ID == userId {
+			memberId = memberUser.ID
+			break
+		}
+	}
 
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
 	if err != nil {

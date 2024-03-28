@@ -100,7 +100,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, err
 	}
 
-	members, _, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
+	memberUsers, _, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
 	})
@@ -108,12 +108,11 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		return nil, "", nil, wrapError(err, "failed to list members")
 	}
 
-	for _, member := range members {
-		usr := member.User
+	for _, memberUser := range memberUsers {
 		accUser := cloudflare.AccessUser{
-			ID:    usr.ID,
-			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
-			Email: usr.Email,
+			ID:    memberUser.User.ID,
+			Name:  fmt.Sprintf("%s %s", memberUser.User.FirstName, memberUser.User.LastName),
+			Email: memberUser.User.Email,
 			AccessSeat: func(seat bool) *bool {
 				return &seat
 			}(false),

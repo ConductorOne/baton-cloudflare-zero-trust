@@ -8,7 +8,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
-	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 type memberBuilder struct {
@@ -21,35 +20,6 @@ func (m *memberBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return m.resourceType
 }
 
-func getMemberResource(member *cloudflare.AccountMember) (*v2.Resource, error) {
-	usr := member.User
-	profile := map[string]interface{}{
-		"login":      usr.Email,
-		"first_name": usr.FirstName,
-		"last_name":  usr.LastName,
-		"email":      usr.Email,
-	}
-
-	userTraits := []rs.UserTraitOption{
-		rs.WithUserProfile(profile),
-		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
-		rs.WithUserLogin(usr.Email),
-		rs.WithEmail(usr.Email, true),
-	}
-
-	displayName := fmt.Sprintf("%s %s", usr.FirstName, usr.LastName)
-	if usr.FirstName == "" {
-		displayName = usr.Email
-	}
-
-	resource, err := rs.NewUserResource(displayName, memberResourceType, member.ID, userTraits)
-	if err != nil {
-		return nil, err
-	}
-
-	return resource, nil
-}
-
 // List returns all the members of an account as resource objects.
 // Members include a UserTrait because they are the 'shape' of a standard member.
 func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
@@ -59,7 +29,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		return nil, "", nil, err
 	}
 
-	members, info, err := m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
+	memberUsers, info, err := m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
 	})
@@ -67,25 +37,17 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		return nil, "", nil, wrapError(err, "failed to list members")
 	}
 
-	resources := make([]*v2.Resource, 0, len(members))
-	for _, member := range members {
-		memberCopy := member
-		usr := member.User
+	resources := make([]*v2.Resource, 0, len(memberUsers))
+	for _, memberUser := range memberUsers {
 		accUser := cloudflare.AccessUser{
-			ID:    usr.ID,
-			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
-			Email: usr.Email,
+			ID:    memberUser.User.ID,
+			Name:  fmt.Sprintf("%s %s", memberUser.User.FirstName, memberUser.User.LastName),
+			Email: memberUser.User.Email,
 			AccessSeat: func(seat bool) *bool {
 				return &seat
 			}(false),
 		}
-		resource, err := getMemberResource(&memberCopy)
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to create member resource")
-		}
-
-		resources = append(resources, resource)
-		resource, err = newUserResource(accUser)
+		resource, err := newUserResource(accUser)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create user resource")
 		}
