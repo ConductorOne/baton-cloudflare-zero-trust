@@ -110,7 +110,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 
 	for _, member := range members {
 		usr := member.User
-		au := cloudflare.AccessUser{
+		accUser := cloudflare.AccessUser{
 			ID:    usr.ID,
 			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
 			Email: usr.Email,
@@ -118,7 +118,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 				return &seat
 			}(false),
 		}
-		users = append(users, au)
+		users = append(users, accUser)
 	}
 
 	groupGrants := getAccessIncludeEmails(group.Include)

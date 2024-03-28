@@ -70,9 +70,24 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 	resources := make([]*v2.Resource, 0, len(members))
 	for _, member := range members {
 		memberCopy := member
+		usr := member.User
+		accUser := cloudflare.AccessUser{
+			ID:    usr.ID,
+			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
+			Email: usr.Email,
+			AccessSeat: func(seat bool) *bool {
+				return &seat
+			}(false),
+		}
 		resource, err := getMemberResource(&memberCopy)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create member resource")
+		}
+
+		resources = append(resources, resource)
+		resource, err = newUserResource(accUser)
+		if err != nil {
+			return nil, "", nil, wrapError(err, "failed to create user resource")
 		}
 
 		resources = append(resources, resource)

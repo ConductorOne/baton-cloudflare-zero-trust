@@ -45,6 +45,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 			userTraits = append(userTraits, rs.WithLastLogin(loginTime))
 		}
 	}
+
 	if user.CreatedAt != "" {
 		createdAt, err := time.Parse("2006-01-02T15:04:05.000000Z", user.CreatedAt)
 		if err == nil {
@@ -53,8 +54,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 	}
 
 	displayName := user.Name
-
-	if user.Name == "" {
+	if firstName == "" {
 		displayName = user.Email
 	}
 
