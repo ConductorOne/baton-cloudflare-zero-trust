@@ -1,7 +1,6 @@
 package connector
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -16,7 +15,7 @@ func annotationsForUserResourceType() annotations.Annotations {
 	return annos
 }
 
-func getAccessIncludeEmails(ctx context.Context, include []interface{}) []string {
+func getAccessIncludeEmails(include []interface{}) []string {
 	var emailArr []string
 	for _, includeRule := range include {
 		im, ok := includeRule.(map[string]interface{})

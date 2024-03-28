@@ -21,24 +21,25 @@ func (m *memberBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return m.resourceType
 }
 
-func getMemberResource(ctx context.Context, member *cloudflare.AccountMember) (*v2.Resource, error) {
+func getMemberResource(member *cloudflare.AccountMember) (*v2.Resource, error) {
+	usr := member.User
 	profile := map[string]interface{}{
-		"login":      member.User.Email,
-		"first_name": member.User.FirstName,
-		"last_name":  member.User.LastName,
-		"email":      member.User.Email,
+		"login":      usr.Email,
+		"first_name": usr.FirstName,
+		"last_name":  usr.LastName,
+		"email":      usr.Email,
 	}
 
 	userTraits := []rs.UserTraitOption{
 		rs.WithUserProfile(profile),
 		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
-		rs.WithUserLogin(member.User.Email),
-		rs.WithEmail(member.User.Email, true),
+		rs.WithUserLogin(usr.Email),
+		rs.WithEmail(usr.Email, true),
 	}
 
-	displayName := fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName)
-	if member.User.FirstName == "" {
-		displayName = member.User.Email
+	displayName := fmt.Sprintf("%s %s", usr.FirstName, usr.LastName)
+	if usr.FirstName == "" {
+		displayName = usr.Email
 	}
 
 	resource, err := rs.NewUserResource(displayName, memberResourceType, member.ID, userTraits)
@@ -58,22 +59,35 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		return nil, "", nil, err
 	}
 
-	if len(members) == 0 {
-		members, info, err = m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
-			Page:    page,
-			PerPage: resourcePageSize,
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list members")
-		}
+	members, info, err := m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
+		Page:    page,
+		PerPage: resourcePageSize,
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list members")
 	}
 
 	resources := make([]*v2.Resource, 0, len(members))
 	for _, member := range members {
 		memberCopy := member
-		resource, err := getMemberResource(ctx, &memberCopy)
+		usr := member.User
+		accUser := cloudflare.AccessUser{
+			ID:    usr.ID,
+			Name:  fmt.Sprintf("%s %s", usr.FirstName, usr.LastName),
+			Email: usr.Email,
+			AccessSeat: func(seat bool) *bool {
+				return &seat
+			}(false),
+		}
+		resource, err := getMemberResource(&memberCopy)
 		if err != nil {
 			return nil, "", nil, wrapError(err, "failed to create member resource")
+		}
+
+		resources = append(resources, resource)
+		resource, err = newUserResource(accUser)
+		if err != nil {
+			return nil, "", nil, wrapError(err, "failed to create user resource")
 		}
 
 		resources = append(resources, resource)
