@@ -23,4 +23,9 @@ var (
 			v2.ResourceType_TRAIT_ROLE,
 		},
 	}
+	memberResourceType = &v2.ResourceType{
+		Id:          "member",
+		DisplayName: "Member",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	}
 )

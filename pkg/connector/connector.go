@@ -20,13 +20,14 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 		newUserBuilder(d.client, d.accountId),
 		newGroupBuilder(d.client, d.accountId),
 		newRoleBuilder(d.client, d.accountId),
+		newMemberBuilder(d.client, d.accountId),
 	}
 }
 
 // Metadata returns metadata about the connector.
 func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
-		DisplayName: "My Baton Connector",
+		DisplayName: "Baton Cloudflare Zero Trust",
 		Description: "The template implementation of a baton connector",
 	}, nil
 }
