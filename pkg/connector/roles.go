@@ -27,11 +27,7 @@ type roleBuilder struct {
 
 const errMissingAccountID = "required missing account ID"
 
-var (
-	ErrMissingAccountID = errors.New(errMissingAccountID)
-	roles               []cloudflare.AccountRole
-	members             []cloudflare.AccountMember
-)
+var ErrMissingAccountID = errors.New(errMissingAccountID)
 
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return r.resourceType
@@ -70,19 +66,17 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *
 		return nil, "", nil, err
 	}
 
-	if len(roles) == 0 {
-		accountID := cloudflare.ResourceContainer{
-			Identifier: r.accountId,
-		}
-		roles, err = r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-			ResultInfo: cloudflare.ResultInfo{
-				Page:    page,
-				PerPage: resourcePageSize,
-			},
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list roles")
-		}
+	accountID := cloudflare.ResourceContainer{
+		Identifier: r.accountId,
+	}
+	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
+		ResultInfo: cloudflare.ResultInfo{
+			Page:    page,
+			PerPage: resourcePageSize,
+		},
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list roles")
 	}
 
 	resources := make([]*v2.Resource, 0, len(roles))
@@ -105,19 +99,17 @@ func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, t
 		return nil, "", nil, err
 	}
 
-	if len(roles) == 0 {
-		accountID := cloudflare.ResourceContainer{
-			Identifier: r.accountId,
-		}
-		roles, err = r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-			ResultInfo: cloudflare.ResultInfo{
-				Page:    page,
-				PerPage: resourcePageSize,
-			},
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list roles")
-		}
+	accountID := cloudflare.ResourceContainer{
+		Identifier: r.accountId,
+	}
+	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
+		ResultInfo: cloudflare.ResultInfo{
+			Page:    page,
+			PerPage: resourcePageSize,
+		},
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list roles")
 	}
 
 	for _, role := range roles {
@@ -143,26 +135,31 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 		return nil, "", nil, err
 	}
 
-	if len(members) == 0 {
-		members, info, err = r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
-			Page:    page,
-			PerPage: resourcePageSize,
-		})
-		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to list members")
-		}
+	members, info, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
+		Page:    page,
+		PerPage: resourcePageSize,
+	})
+	if err != nil {
+		return nil, "", nil, wrapError(err, "failed to list members")
 	}
 
 	for _, member := range members {
 		for _, role := range member.Roles {
-			memberCopy := member
 			if role.ID != resource.Id.Resource {
 				continue
 			}
 
-			ur, err := getMemberResource(ctx, &memberCopy)
+			accUser := cloudflare.AccessUser{
+				ID:    member.User.ID,
+				Name:  fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
+				Email: member.User.Email,
+				AccessSeat: func(seat bool) *bool {
+					return &seat
+				}(false),
+			}
+			ur, err := newUserResource(accUser)
 			if err != nil {
-				return nil, "", nil, fmt.Errorf("error creating member resource for role %s: %w", resource.Id.Resource, err)
+				return nil, "", nil, wrapError(err, "failed to create user resource")
 			}
 
 			gr := grant.NewGrant(resource, role.Name, ur.Id)
@@ -214,18 +211,23 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
-		err      error
-		memberId = principal.Id.Resource
+		err    error
+		userId = principal.Id.Resource
 	)
 	l := ctxzap.Extract(ctx)
 
-	if principal.Id.ResourceType != memberResourceType.Id {
+	if principal.Id.ResourceType != userResourceType.Id {
 		l.Warn(
-			"baton-cloudflare: only members can be granted role membership",
+			"baton-cloudflare: only users can be granted role membership",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
 		)
-		return nil, fmt.Errorf("baton-cloudflare: only members can be granted role membership")
+		return nil, fmt.Errorf("baton-cloudflare: only users can be granted role membership")
+	}
+
+	memberId, err := getMemberId(ctx, r, userId)
+	if err != nil {
+		return nil, err
 	}
 
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
@@ -233,10 +235,8 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	roles := []cloudflare.AccountRole{
-		{
-			ID: entitlement.Resource.Id.Resource,
-		},
+	roles := []cloudflare.AccountRole{{
+		ID: entitlement.Resource.Id.Resource},
 	}
 	for _, role := range account.Result.Roles {
 		roles = append(roles, cloudflare.AccountRole{
@@ -259,23 +259,42 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	return nil, nil
 }
 
+func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, error) {
+	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	if err != nil {
+		return "", wrapError(err, "failed to list user members")
+	}
+
+	for _, memberUser := range memberUsers {
+		if memberUser.User.ID == userId {
+			return memberUser.ID, nil
+		}
+	}
+
+	return "", nil
+}
+
 func (r *roleBuilder) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
-
 	entitlement := grant.Entitlement
 	principal := grant.Principal
 
-	if principal.Id.ResourceType != memberResourceType.Id {
+	if principal.Id.ResourceType != userResourceType.Id {
 		l.Warn(
-			"couldflare-connector: only members can have role membership revoked",
+			"couldflare-connector: only users can have role membership revoked",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
 		)
-		return nil, fmt.Errorf("couldflare-connector: only members can have role membership revoked")
+		return nil, fmt.Errorf("couldflare-connector: only users can have role membership revoked")
 	}
 
-	memberId := principal.Id.Resource
+	userId := principal.Id.Resource
 	roleId := entitlement.Resource.Id.Resource
+
+	memberId, err := getMemberId(ctx, r, userId)
+	if err != nil {
+		return nil, err
+	}
 
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
 	if err != nil {

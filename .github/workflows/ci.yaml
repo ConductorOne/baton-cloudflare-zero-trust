@@ -1,5 +1,7 @@
 name: ci
-on: pull_request
+on:
+  workflow_dispatch:
+  pull_request:
 jobs:
   go-lint:
     runs-on: ubuntu-latest
@@ -36,3 +38,57 @@ jobs:
         uses: guyarb/golang-test-annotations@v0.5.1
         with:
           test-results: test.json
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+        BATON_API_KEY: ${{ secrets.BATON_API_KEY }}
+        BATON_EMAIL: ${{ secrets.BATON_EMAIL }}
+        BATON_ACCOUNT_ID: ${{ secrets.BATON_ACCOUNT_ID }}
+        BATON_LOG_LEVEL: 'debug'
+        # Revoke grants variable
+        CONNECTOR_GRANT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics:user:9d9a62a5b834a8c9c5cf43cd234dfd4a'
+        # Grant entitlements variables
+        CONNECTOR_ENTITLEMENT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics'
+        CONNECTOR_PRINCIPAL: '9d9a62a5b834a8c9c5cf43cd234dfd4a'
+        CONNECTOR_PRINCIPAL_TYPE: 'user'
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.22.x
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Build baton-cloudflare-zero-trust
+        run: go build ./cmd/baton-cloudflare-zero-trust
+      - name: Run baton-cloudflare-zero-trust-cmd
+        run: ./baton-cloudflare-zero-trust
+      - name: Install baton
+        run: ./scripts/get-baton.sh && mv baton /usr/local/bin
+      - name: Get baton resources
+        run: baton resources
+      - name: Check for grant before revoking
+        if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != ''
+        run: |
+         ./baton-cloudflare-zero-trust
+          baton grants --entitlement ${{ env.CONNECTOR_ENTITLEMENT }} --output-format=json | jq -e ".grants | any(.principal.id.resource ==\"${{ env.CONNECTOR_PRINCIPAL }}\")"
+      - name: Revoke grants
+        if: env.CONNECTOR_GRANT != ''
+        run: |
+          ./baton-cloudflare-zero-trust 
+          ./baton-cloudflare-zero-trust --revoke-grant ${{ env.CONNECTOR_GRANT }}
+      - name: Check grant was revoked
+        if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != ''
+        run: |
+          ./baton-cloudflare-zero-trust 
+           baton grants --entitlement ${{ env.CONNECTOR_ENTITLEMENT }} --output-format=json | jq -e "try(.grants[]? | any(.principal.id.resource !=\"${{ env.CONNECTOR_PRINCIPAL }}\")) // true"
+      - name: Grant entitlement
+        if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != '' && env.CONNECTOR_PRINCIPAL_TYPE != ''
+        run: | 
+          ./baton-cloudflare-zero-trust
+          ./baton-cloudflare-zero-trust --grant-entitlement ${{ env.CONNECTOR_ENTITLEMENT }} --grant-principal ${{ env.CONNECTOR_PRINCIPAL }} --grant-principal-type ${{ env.CONNECTOR_PRINCIPAL_TYPE }}
+      - name: Check grant was re-granted
+        if: env.CONNECTOR_ENTITLEMENT != '' && env.CONNECTOR_PRINCIPAL != ''
+        run: |
+          ./baton-cloudflare-zero-trust
+          baton grants --entitlement ${{ env.CONNECTOR_ENTITLEMENT }} --output-format=json | jq -e ".grants | any(.principal.id.resource ==\"${{ env.CONNECTOR_PRINCIPAL }}\")"
