@@ -1294,12 +1294,18 @@ func Xtzset(t *TLS) {
 	//TODO
 }
 
+var strerrorBuf [100]byte
+
 // char *strerror(int errnum);
 func Xstrerror(t *TLS, errnum int32) uintptr {
 	if __ccgo_strace {
 		trc("t=%v errnum=%v, (%v:)", t, errnum, origin(2))
 	}
-	panic(todo(""))
+	// 	if dmesgs {
+	// 		dmesg("%v: %v\n%s", origin(1), errnum, debug.Stack())
+	// 	}
+	copy(strerrorBuf[:], fmt.Sprintf("strerror(%d)\x00", errnum))
+	return uintptr(unsafe.Pointer(&strerrorBuf[0]))
 }
 
 // void *dlopen(const char *filename, int flags);
@@ -1468,14 +1474,6 @@ func Xrealpath(t *TLS, path, resolved_path uintptr) uintptr {
 		dmesg("%v: %q: ok", origin(1), GoString(path))
 	}
 	return resolved_path
-}
-
-// struct tm *gmtime_r(const time_t *timep, struct tm *result);
-func Xgmtime_r(t *TLS, timep, result uintptr) uintptr {
-	if __ccgo_strace {
-		trc("t=%v result=%v, (%v:)", t, result, origin(2))
-	}
-	panic(todo(""))
 }
 
 // char *inet_ntoa(struct in_addr in);
@@ -1951,12 +1949,12 @@ func Xsetattrlist(t *TLS, path, attrList, attrBuf uintptr, attrBufSize types.Siz
 }
 
 // int copyfile(const char *from, const char *to, copyfile_state_t state, copyfile_flags_t flags);
-func Xcopyfile(...interface{}) int32 {
+func Xcopyfile(t *TLS, _ ...interface{}) int32 {
 	panic(todo(""))
 }
 
 // int truncate(const char *path, off_t length);
-func Xtruncate(...interface{}) int32 {
+func Xtruncate(t *TLS, _ ...interface{}) int32 {
 	panic(todo(""))
 }
 
@@ -2448,4 +2446,55 @@ func Xmalloc_size(t *TLS, ptr uintptr) types.Size_t {
 		trc("t=%v ptr=%v, (%v:)", t, ptr, origin(2))
 	}
 	panic(todo(""))
+}
+
+// int open(const char *pathname, int flags, ...);
+func Xopen64(t *TLS, pathname uintptr, flags int32, args uintptr) int32 {
+	if __ccgo_strace {
+		trc("t=%v pathname=%v flags=%v args=%v, (%v:)", t, pathname, flags, args, origin(2))
+	}
+	var mode types.Mode_t
+	if args != 0 {
+		mode = (types.Mode_t)(VaUint32(&args))
+	}
+	fdcwd := fcntl.AT_FDCWD
+	n, _, err := unix.Syscall6(unix.SYS_OPENAT, uintptr(fdcwd), pathname, uintptr(flags), uintptr(mode), 0, 0)
+	if err != 0 {
+		// if dmesgs {
+		// 	dmesg("%v: %q %#x: %v", origin(1), GoString(pathname), flags, err)
+		// }
+		t.setErrno(err)
+		return -1
+	}
+
+	// if dmesgs {
+	// 	dmesg("%v: %q flags %#x mode %#o: fd %v", origin(1), GoString(pathname), flags, mode, n)
+	// }
+	return int32(n)
+}
+
+// int getrlimit(int resource, struct rlimit *rlim);
+func Xgetrlimit(t *TLS, resource int32, rlim uintptr) int32 {
+	if __ccgo_strace {
+		trc("t=%v resource=%v rlim=%v, (%v:)", t, resource, rlim, origin(2))
+	}
+	if _, _, err := unix.Syscall(unix.SYS_GETRLIMIT, uintptr(resource), uintptr(rlim), 0); err != 0 {
+		t.setErrno(err)
+		return -1
+	}
+
+	return 0
+}
+
+// int setrlimit(int resource, const struct rlimit *rlim);
+func Xsetrlimit(t *TLS, resource int32, rlim uintptr) int32 {
+	if __ccgo_strace {
+		trc("t=%v resource=%v rlim=%v, (%v:)", t, resource, rlim, origin(2))
+	}
+	if _, _, err := unix.Syscall(unix.SYS_SETRLIMIT, uintptr(resource), uintptr(rlim), 0); err != 0 {
+		t.setErrno(err)
+		return -1
+	}
+
+	return 0
 }

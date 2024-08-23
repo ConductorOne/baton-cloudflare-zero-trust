@@ -46,10 +46,13 @@ const (
 	DispatchNamespaceBindingType WorkerBindingType = "dispatch_namespace"
 	// WorkerD1DataseBindingType is for D1 databases.
 	WorkerD1DataseBindingType WorkerBindingType = "d1"
+	// WorkerHyperdriveBindingType is for Hyperdrive config bindings.
+	WorkerHyperdriveBindingType WorkerBindingType = "hyperdrive"
 )
 
 type ListWorkerBindingsParams struct {
-	ScriptName string
+	ScriptName        string
+	DispatchNamespace *string
 }
 
 // WorkerBindingListItem a struct representing an individual binding in a list of bindings.
@@ -426,9 +429,35 @@ func (b WorkerD1DatabaseBinding) serialize(bindingName string) (workerBindingMet
 	}
 
 	return workerBindingMeta{
-		"name":        bindingName,
-		"type":        b.Type(),
-		"id": b.DatabaseID,
+		"name": bindingName,
+		"type": b.Type(),
+		"id":   b.DatabaseID,
+	}, nil, nil
+}
+
+// WorkerHyperdriveBinding is a binding to a Hyperdrive config.
+type WorkerHyperdriveBinding struct {
+	Binding  string
+	ConfigID string
+}
+
+// Type returns the type of the binding.
+func (b WorkerHyperdriveBinding) Type() WorkerBindingType {
+	return WorkerHyperdriveBindingType
+}
+
+func (b WorkerHyperdriveBinding) serialize(bindingName string) (workerBindingMeta, workerBindingBodyWriter, error) {
+	if b.Binding == "" {
+		return nil, nil, fmt.Errorf(`binding name for binding "%s" cannot be empty`, bindingName)
+	}
+	if b.ConfigID == "" {
+		return nil, nil, fmt.Errorf(`config ID for binding "%s" cannot be empty`, bindingName)
+	}
+
+	return workerBindingMeta{
+		"name": b.Binding,
+		"type": b.Type(),
+		"id":   b.ConfigID,
 	}, nil, nil
 }
 
@@ -468,6 +497,9 @@ func (api *API) ListWorkerBindings(ctx context.Context, rc *ResourceContainer, p
 	}
 
 	uri := fmt.Sprintf("/accounts/%s/workers/scripts/%s/bindings", rc.Identifier, params.ScriptName)
+	if params.DispatchNamespace != nil && *params.DispatchNamespace != "" {
+		uri = fmt.Sprintf("/accounts/%s/workers/dispatch/namespaces/%s/scripts/%s/bindings", rc.Identifier, *params.DispatchNamespace, params.ScriptName)
+	}
 
 	var jsonRes struct {
 		Response
@@ -557,6 +589,12 @@ func (api *API) ListWorkerBindings(ctx context.Context, rc *ResourceContainer, p
 			database_id := jsonBinding["database_id"].(string)
 			bindingListItem.Binding = WorkerD1DatabaseBinding{
 				DatabaseID: database_id,
+			}
+		case WorkerHyperdriveBindingType:
+			id := jsonBinding["id"].(string)
+			bindingListItem.Binding = WorkerHyperdriveBinding{
+				Binding:  name,
+				ConfigID: id,
 			}
 		default:
 			bindingListItem.Binding = WorkerInheritBinding{}
