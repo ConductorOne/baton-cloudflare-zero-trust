@@ -49,7 +49,7 @@ func getConnector(ctx context.Context, cfg *viper.Viper) (types.ConnectorServer,
 		cfg.GetString(accountIdField.FieldName),
 		cfg.GetString(apiTokenField.FieldName),
 		cfg.GetString(apiKeyField.FieldName),
-		cfg.GetString(emailIdField.FieldName),
+		cfg.GetString(emailField.FieldName),
 	)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
