@@ -74,7 +74,7 @@ Flags:
       --api-token string       Cloudflare API token ($BATON_API_TOKEN)
       --client-id string       The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string   The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
-      --email-id string        Cloudflare account email ($BATON_EMAIL_ID)
+      --email string           Cloudflare account email ($BATON_EMAIL)
   -f, --file string            The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
   -h, --help                   help for baton-cloudflare-zero-trust
       --log-format string      The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")

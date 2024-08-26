@@ -18,21 +18,21 @@ var (
 		"api-token",
 		field.WithDescription("Cloudflare API token"),
 	)
-	emailIdField = field.StringField(
-		"email-id",
+	emailField = field.StringField(
+		"email",
 		field.WithDescription("Cloudflare account email"),
 	)
 	configurationFields = []field.SchemaField{
 		accountIdField,
 		apiKeyField,
 		apiTokenField,
-		emailIdField,
+		emailField,
 	}
 	fieldRelationships = []field.SchemaFieldRelationship{
 		field.FieldsAtLeastOneUsed(apiTokenField, apiKeyField),
 		field.FieldsDependentOn(
 			[]field.SchemaField{apiKeyField},
-			[]field.SchemaField{emailIdField},
+			[]field.SchemaField{emailField},
 		),
 	}
 )

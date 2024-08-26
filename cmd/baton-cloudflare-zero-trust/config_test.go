@@ -31,7 +31,7 @@ func TestConfigs(t *testing.T) {
 			"with api key but missing email ID",
 		},
 		{
-			"--account-id --api-key 1 --email-id 1",
+			"--account-id --api-key 1 --email 1",
 			true,
 			"with api key",
 		},
