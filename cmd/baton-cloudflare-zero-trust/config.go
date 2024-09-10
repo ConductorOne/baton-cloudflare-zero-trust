@@ -30,6 +30,7 @@ var (
 	}
 	fieldRelationships = []field.SchemaFieldRelationship{
 		field.FieldsAtLeastOneUsed(apiTokenField, apiKeyField),
+		field.FieldsMutuallyExclusive(apiTokenField, apiKeyField),
 		field.FieldsDependentOn(
 			[]field.SchemaField{apiKeyField},
 			[]field.SchemaField{emailField},
