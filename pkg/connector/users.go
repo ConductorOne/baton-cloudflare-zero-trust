@@ -7,7 +7,6 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/helpers"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -23,7 +22,7 @@ func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 }
 
 func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
-	firstName, lastName := helpers.SplitFullName(user.Name)
+	firstName, lastName := rs.SplitFullName(user.Name)
 	profile := map[string]interface{}{
 		"login":       user.Email,
 		"first_name":  firstName,
