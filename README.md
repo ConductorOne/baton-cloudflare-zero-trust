@@ -61,12 +61,14 @@ Usage:
   baton-cloudflare-zero-trust [command]
 
 Available Commands:
+  capabilities       Get connector capabilities
   completion         Generate the autocompletion script for the specified shell
   help               Help about any command
 
 Flags:
       --account-id string      Cloudflare account ID ($BATON_ACCOUNT_ID)
       --api-key string         Cloudflare API key ($BATON_API_KEY)
+      --api-token string       Cloudflare API token ($BATON_API_TOKEN)
       --client-id string       The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string   The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
       --email string           Cloudflare account email ($BATON_EMAIL)
