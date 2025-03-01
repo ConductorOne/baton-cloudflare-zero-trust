@@ -1,6 +1,6 @@
 module github.com/conductorone/baton-cloudflare-zero-trust
 
-go 1.20
+go 1.23
 
 require (
 	github.com/cloudflare/cloudflare-go v0.83.0
