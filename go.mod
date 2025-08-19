@@ -1,11 +1,13 @@
 module github.com/conductorone/baton-cloudflare-zero-trust
 
-go 1.20
+go 1.23
 
 require (
 	github.com/cloudflare/cloudflare-go v0.83.0
 	github.com/conductorone/baton-sdk v0.1.29
+	github.com/ennyjfrick/ruleguard-logfatal v0.0.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
+	github.com/quasilyte/go-ruleguard/dsl v0.3.22
 	github.com/spf13/cobra v1.8.0
 	go.uber.org/zap v1.26.0
 )
@@ -78,7 +80,7 @@ require (
 	golang.org/x/exp v0.0.0-20231127185646-65229373498e // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.15.0 // indirect
-	golang.org/x/sync v0.5.0 // indirect
+	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
