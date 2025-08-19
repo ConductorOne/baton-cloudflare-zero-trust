@@ -36,4 +36,11 @@ var (
 			[]field.SchemaField{emailField},
 		),
 	}
+	fieldConfig = field.NewConfiguration(
+		configurationFields,
+		field.WithConnectorDisplayName("Cloudflare Zero Trust"),
+		field.WithHelpUrl("/docs/baton/cloudflare-zero-trust"),
+		field.WithIconUrl("/static/app-icons/cloudflare.svg"),
+		field.WithConstraints(fieldRelationships...),
+	)
 )

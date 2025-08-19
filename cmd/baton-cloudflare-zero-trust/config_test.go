@@ -46,7 +46,7 @@ func TestConfigs(t *testing.T) {
 		t,
 		field.NewConfiguration(
 			configurationFields,
-			fieldRelationships...,
+			field.WithConstraints(fieldRelationships...),
 		),
 		nil,
 		ustrings.ParseFlags,
