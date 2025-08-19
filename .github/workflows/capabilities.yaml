@@ -25,6 +25,9 @@ jobs:
         run: go build -o connector ./cmd/baton-cloudflare-zero-trust
 
       - name: Run and save output
+        env:
+          BATON_ACCOUNT_ID: example
+          BATON_API_TOKEN: example
         run: ./connector capabilities > baton_capabilities.json
 
       - name: Commit changes
