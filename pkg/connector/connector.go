@@ -51,9 +51,7 @@ func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*Conne
 	)
 	if apiKey != "" && email != "" {
 		client, err = cloudflare.New(apiKey, email)
-	}
-
-	if apiToken != "" {
+	} else if apiToken != "" {
 		client, err = cloudflare.NewWithAPIToken(apiToken)
 	}
 

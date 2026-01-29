@@ -5,27 +5,27 @@ import (
 	"fmt"
 	"os"
 
-	configSchema "github.com/conductorone/baton-sdk/pkg/config"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/connector"
+	cfg "github.com/conductorone/baton-cloudflare-zero-trust/pkg/config"
+	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
-
-	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/connector"
 )
 
-const (
-	version       = "dev"
-	connectorName = "baton-cloudflare-zero-trust"
-)
+var version = "dev"
 
 func main() {
 	ctx := context.Background()
-	_, cmd, err := configSchema.DefineConfiguration(ctx,
-		connectorName,
+
+	_, cmd, err := config.DefineConfiguration(
+		ctx,
+		"baton-cloudflare-zero-trust",
 		getConnector,
-		fieldConfig,
+		cfg.Config,
+		connectorrunner.WithDefaultCapabilitiesConnectorBuilder(&connector.Connector{}),
 	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -33,6 +33,7 @@ func main() {
 	}
 
 	cmd.Version = version
+
 	err = cmd.Execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -40,26 +41,27 @@ func main() {
 	}
 }
 
-func getConnector(ctx context.Context, cfg *viper.Viper) (types.ConnectorServer, error) {
+// getConnector initializes and returns the connector.
+func getConnector(ctx context.Context, c *cfg.CloudflareZeroTrust) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
 	cb, err := connector.New(
 		ctx,
-		cfg.GetString(accountIdField.FieldName),
-		cfg.GetString(apiTokenField.FieldName),
-		cfg.GetString(apiKeyField.FieldName),
-		cfg.GetString(emailField.FieldName),
+		c.AccountId,
+		c.ApiToken,
+		c.ApiKey,
+		c.Email,
 	)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
 	}
 
-	connector, err := connectorbuilder.NewConnector(ctx, cb)
+	server, err := connectorbuilder.NewConnector(ctx, cb)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
 	}
 
-	return connector, nil
+	return server, nil
 }
