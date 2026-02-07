@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/test"
 	"github.com/conductorone/baton-sdk/pkg/ustrings"
 )
@@ -44,10 +44,7 @@ func TestConfigs(t *testing.T) {
 
 	test.ExerciseTestCasesFromExpressions(
 		t,
-		field.NewConfiguration(
-			configurationFields,
-			field.WithConstraints(fieldRelationships...),
-		),
+		config.Config,
 		nil,
 		ustrings.ParseFlags,
 		testCases,

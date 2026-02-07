@@ -9,13 +9,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
-type Connector struct {
+type CloudflareZeroTrust struct {
 	client    *cloudflare.API
 	accountId string
 }
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
-func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
+func (d *CloudflareZeroTrust) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
 	return []connectorbuilder.ResourceSyncer{
 		newUserBuilder(d.client, d.accountId),
 		newGroupBuilder(d.client, d.accountId),
@@ -25,7 +25,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 }
 
 // Metadata returns metadata about the connector.
-func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
+func (d *CloudflareZeroTrust) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Baton Cloudflare Zero Trust",
 		Description: "The template implementation of a baton connector",
@@ -34,7 +34,7 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 
 // Validate is called to ensure that the connector is properly configured. It should exercise any API credentials
 // to be sure that they are valid.
-func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
+func (d *CloudflareZeroTrust) Validate(ctx context.Context) (annotations.Annotations, error) {
 	_, err := d.client.AccessKeysConfig(ctx, d.accountId)
 	if err != nil {
 		return nil, wrapError(err, "failed to validate access keys config")
@@ -44,7 +44,7 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*Connector, error) {
+func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*CloudflareZeroTrust, error) {
 	var (
 		client *cloudflare.API
 		err    error
@@ -61,7 +61,7 @@ func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*Conne
 		return nil, err
 	}
 
-	return &Connector{
+	return &CloudflareZeroTrust{
 		client:    client,
 		accountId: accountId,
 	}, nil
