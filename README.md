@@ -1,4 +1,4 @@
-# `baton-cloudflare-zero-trust` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-cloudflare-zero-trust.svg)](https://pkg.go.dev/github.com/conductorone/baton-cloudflare-zero-trust) ![main ci](https://github.com/conductorone/baton-cloudflare-zero-trust/actions/workflows/main.yaml/badge.svg)
+# `baton-cloudflare-zero-trust` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-cloudflare-zero-trust.svg)](https://pkg.go.dev/github.com/conductorone/baton-cloudflare-zero-trust) ![ci](https://github.com/conductorone/baton-cloudflare-zero-trust/actions/workflows/ci.yaml/badge.svg)
 
 `baton-cloudflare-zero-trust` is a connector for Cloudflare Zero Trust built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It communicates with the Cloudflare API to sync data about users and access groups in your Cloudflare Zero Trust organization.
 Check out [Baton](https://github.com/conductorone/baton) to learn more about the project in general.
@@ -47,9 +47,9 @@ baton resources
 
 # Contributing, Support and Issues
 
-We started Baton because we were tired of taking screenshots and manually 
-building spreadsheets. We welcome contributions, and ideas, no matter how 
-small&mdash;our goal is to make identity and permissions sprawl less painful for 
+We started Baton because we were tired of taking screenshots and manually
+building spreadsheets. We welcome contributions, and ideas, no matter how
+small&mdash;our goal is to make identity and permissions sprawl less painful for
 everyone. If you have questions, problems, or ideas: Please open a GitHub Issue!
 
 See [CONTRIBUTING.md](https://github.com/ConductorOne/baton/blob/main/CONTRIBUTING.md) for more details.
