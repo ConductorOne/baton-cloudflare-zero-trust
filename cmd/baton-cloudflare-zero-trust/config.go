@@ -25,6 +25,7 @@ var (
 	baseURLField = field.StringField(
 		"base-url",
 		field.WithDescription("Override the Cloudflare API URL (for testing)"),
+		field.WithHidden(true),
 	)
 	configurationFields = []field.SchemaField{
 		accountIdField,
