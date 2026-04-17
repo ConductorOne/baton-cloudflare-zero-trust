@@ -66,7 +66,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 // List returns all the users from the database as resource objects.
 // Users include a UserTrait because they are the 'shape' of a standard user.
 func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	bag, page, err := parsePageToken(attrs.PageToken(), &v2.ResourceId{ResourceType: o.resourceType.Id})
+	bag, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: o.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}

@@ -23,7 +23,7 @@ func (m *memberBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 // Members include a UserTrait because they are the 'shape' of a standard member.
 func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	var info cloudflare.ResultInfo
-	bag, page, err := parsePageToken(attrs.PageToken(), &v2.ResourceId{ResourceType: m.resourceType.Id})
+	bag, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: m.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}

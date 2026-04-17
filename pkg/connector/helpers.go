@@ -9,9 +9,28 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
+func capabilityPermissions(perms ...string) *v2.CapabilityPermissions {
+	cp := &v2.CapabilityPermissions{}
+	for _, p := range perms {
+		cp.Permissions = append(cp.Permissions, &v2.CapabilityPermission{Permission: p})
+	}
+	return cp
+}
+
+func annotationsWithPermissions(perms *v2.CapabilityPermissions) annotations.Annotations {
+	annos := annotations.Annotations{}
+	annos.Update(perms)
+	return annos
+}
+
 func annotationsForUserResourceType() annotations.Annotations {
 	annos := annotations.Annotations{}
 	annos.Update(&v2.SkipEntitlementsAndGrants{})
+	annos.Update(capabilityPermissions(
+		"Access: Apps and Policies:Read",
+		"Access: Audit Logs:Read",
+		"Account Settings:Read",
+	))
 	return annos
 }
 

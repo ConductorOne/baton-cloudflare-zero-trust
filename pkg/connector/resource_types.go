@@ -15,6 +15,11 @@ var (
 		Id:          "group",
 		DisplayName: "Group",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
+		Annotations: annotationsWithPermissions(capabilityPermissions(
+			"Access: Organizations, Identity Providers, and Groups:Read",
+			"Access: Organizations, Identity Providers, and Groups:Edit",
+			"Account Settings:Read",
+		)),
 	}
 	roleResourceType = &v2.ResourceType{
 		Id:          "role",
@@ -22,10 +27,17 @@ var (
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_ROLE,
 		},
+		Annotations: annotationsWithPermissions(capabilityPermissions(
+			"Account Settings:Read",
+			"Account Settings:Edit",
+		)),
 	}
 	memberResourceType = &v2.ResourceType{
 		Id:          "member",
 		DisplayName: "Member",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+		Annotations: annotationsWithPermissions(capabilityPermissions(
+			"Account Settings:Read",
+		)),
 	}
 )

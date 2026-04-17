@@ -28,7 +28,7 @@ jobs:
         run: ./connector config > config_schema.json
 
       - name: Run and save capabilities output
-        run: ./connector --account-id="test" --api-token="test" capabilities > baton_capabilities.json
+        run: ./connector capabilities > baton_capabilities.json
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9

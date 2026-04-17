@@ -19,6 +19,7 @@ const (
 
 func defaultLogFormat() any {
 	// If stdout is a TTY, use console format, otherwise use JSON
+	//nolint:gosec // os.Stdout.Fd() is a process-owned fd and safe for terminal detection.
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		return logging.LogFormatConsole
 	}
@@ -94,7 +95,13 @@ var (
 		WithDescription("The timestamp indicating when debug-level logging should expire"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetOps))
-	skipFullSync              = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	skipFullSync     = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	WorkerCountField = IntField("workers",
+		WithDescription("The number of sync workers to use. -1 for auto-detect, 0 for sequential, >0 for parallel"),
+		WithDefaultValue(0),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+	ParallelSyncField         = BoolField("parallel-sync", WithDescription("Deprecated: use --workers instead."), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	targetedSyncResourceIDs   = StringSliceField("sync-resources", WithDescription("The resource IDs to sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	skipEntitlementsAndGrants = BoolField("skip-entitlements-and-grants",
 		WithDescription("This must be set to skip syncing of entitlements and grants"),
@@ -309,6 +316,15 @@ var (
 		WithPersistent(true),
 		WithHidden(true),
 		WithExportTarget(ExportTargetOps))
+
+	HttpTimeoutField = IntField("http-timeout-seconds",
+		WithDescription("HTTP client timeout in seconds (max 1800)"),
+		WithDefaultValue(300),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).Lte(1800)
+		}))
 )
 
 func LambdaServerFields() []SchemaField {
@@ -383,6 +399,8 @@ var DefaultFields = []SchemaField{
 	invokeResourceActionTypeField,
 	invokeResourceActionArgsField,
 	ServerSessionStoreMaximumSizeField,
+	WorkerCountField,
+	ParallelSyncField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,
@@ -396,6 +414,8 @@ var DefaultFields = []SchemaField{
 	healthCheckField,
 	healthCheckPortField,
 	healthCheckBindAddressField,
+
+	HttpTimeoutField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

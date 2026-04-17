@@ -13,6 +13,7 @@ import (
 // SecurityInsightTraitOption is a functional option for configuring a SecurityInsightTrait.
 type SecurityInsightTraitOption func(*v2.SecurityInsightTrait) error
 
+// Deprecated: Use WithNormalizedRiskScore instead.
 // WithRiskScore sets the insight type to risk score with the given value.
 func WithRiskScore(value string) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
@@ -22,6 +23,58 @@ func WithRiskScore(value string) SecurityInsightTraitOption {
 		t.SetRiskScore(&v2.RiskScore{
 			Value: value,
 		})
+		return nil
+	}
+}
+
+// WithNormalizedRiskScore sets the insight type to a risk score with a normalized percentage value.
+// normalizedScore must be in the range [0, 100] where higher means more risk.
+// sourceScore is the original value from the source system (e.g., "0.48", "7.5/10 CVSS").
+func WithNormalizedRiskScore(normalizedScore uint32, sourceScore string) SecurityInsightTraitOption {
+	return func(t *v2.SecurityInsightTrait) error {
+		if normalizedScore > 100 {
+			return fmt.Errorf("normalized risk score must be between 0 and 100, got %d", normalizedScore)
+		}
+		rs := &v2.RiskScore{
+			SourceScore: sourceScore,
+		}
+		rs.SetNormalizedScore(normalizedScore)
+		t.SetRiskScore(rs)
+		return nil
+	}
+}
+
+// Deprecated: Use WithRiskFactors instead.
+// WithRiskScoreFactors sets or updates the flat string factors on a risk score insight.
+// This should be used after WithRiskScore/WithNormalizedRiskScore or on an existing risk score insight.
+func WithRiskScoreFactors(factors ...string) SecurityInsightTraitOption {
+	return func(t *v2.SecurityInsightTrait) error {
+		rs := t.GetRiskScore()
+		if rs == nil {
+			return fmt.Errorf("cannot set factors: insight is not a risk score type (use WithNormalizedRiskScore first)")
+		}
+		rs.SetFactors(factors)
+		return nil
+	}
+}
+
+// NewRiskFactor creates a new RiskFactor with the given description and severity.
+func NewRiskFactor(description string, severity v2.RiskFactor_Severity) *v2.RiskFactor {
+	return v2.RiskFactor_builder{
+		Description: description,
+		Severity:    severity,
+	}.Build()
+}
+
+// WithRiskFactors sets or updates the structured risk factors on a risk score insight.
+// This should be used after WithNormalizedRiskScore or on an existing risk score insight.
+func WithRiskFactors(factors ...*v2.RiskFactor) SecurityInsightTraitOption {
+	return func(t *v2.SecurityInsightTrait) error {
+		rs := t.GetRiskScore()
+		if rs == nil {
+			return fmt.Errorf("cannot set risk factors: insight is not a risk score type (use WithNormalizedRiskScore first)")
+		}
+		rs.SetRiskFactors(factors)
 		return nil
 	}
 }
@@ -106,16 +159,20 @@ func WithInsightAppUserTarget(email string, externalId string) SecurityInsightTr
 }
 
 // NewSecurityInsightTrait creates a new SecurityInsightTrait with the given options.
-// You must provide either WithRiskScore or WithIssue to set the insight type.
+// You must provide either WithNormalizedRiskScore or WithIssue to set the insight type.
 //
 // Example usage:
 //
 //	trait, err := NewSecurityInsightTrait(
-//	    WithIssue("CVE-2024-1234", "Critical"),
+//	    WithIssue("CVE-2024-1234"),
+//	    WithIssueSeverity("Critical"),
 //	    WithInsightUserTarget("user@example.com"))
 //
 //	trait, err := NewSecurityInsightTrait(
-//	    WithRiskScore("85"),
+//	    WithNormalizedRiskScore(85, "0.85"),
+//	    WithRiskFactors(
+//	        NewRiskFactor("MFA not enabled", v2.RiskFactor_SEVERITY_HIGH),
+//	        NewRiskFactor("No recent activity", v2.RiskFactor_SEVERITY_MEDIUM)),
 //	    WithInsightResourceTarget(resourceId))
 func NewSecurityInsightTrait(opts ...SecurityInsightTraitOption) (*v2.SecurityInsightTrait, error) {
 	trait := &v2.SecurityInsightTrait{
@@ -167,7 +224,9 @@ func GetSecurityInsightTrait(resource *v2.Resource) (*v2.SecurityInsightTrait, e
 //	    resourceType,
 //	    objectID,
 //	    WithSecurityInsightTrait(
-//	        WithIssue("CVE-2024-1234", "Critical"),
+//	        WithNormalizedRiskScore(48, "0.48"),
+//	        WithRiskFactors(
+//	            NewRiskFactor("Unmanaged device", v2.RiskFactor_SEVERITY_HIGH)),
 //	        WithInsightUserTarget("user@example.com")))
 func WithSecurityInsightTrait(opts ...SecurityInsightTraitOption) ResourceOption {
 	return func(r *v2.Resource) error {
@@ -206,12 +265,16 @@ func WithSecurityInsightTrait(opts ...SecurityInsightTraitOption) ResourceOption
 //
 // Example usage:
 //
-//	// Risk score for a user
+//	// Risk score for a user (CrowdStrike 0-1 scale normalized to 0-100)
 //	resource, err := NewSecurityInsightResource(
 //	    "User Risk Score",
 //	    securityInsightResourceType,
 //	    "user-123",
-//	    WithRiskScore("85"),
+//	    WithNormalizedRiskScore(48, "0.48"),
+//	    WithRiskFactors(
+//	        NewRiskFactor("Unmanaged device", v2.RiskFactor_SEVERITY_HIGH),
+//	        NewRiskFactor("No recent activity", v2.RiskFactor_SEVERITY_MEDIUM),
+//	        NewRiskFactor("Excessive permissions", v2.RiskFactor_SEVERITY_CRITICAL)),
 //	    WithInsightUserTarget("user@example.com"))
 //
 //	// Issue with severity for a resource
@@ -219,7 +282,8 @@ func WithSecurityInsightTrait(opts ...SecurityInsightTraitOption) ResourceOption
 //	    "Critical Vulnerability",
 //	    securityInsightResourceType,
 //	    "vuln-456",
-//	    WithIssue("CVE-2024-1234", "Critical"),
+//	    WithIssue("CVE-2024-1234"),
+//	    WithIssueSeverity("Critical"),
 //	    WithInsightResourceTarget(resourceId))
 //
 //	// Issue for external resource with custom observation time
@@ -267,7 +331,8 @@ func IsIssue(trait *v2.SecurityInsightTrait) bool {
 	return trait.GetIssue() != nil
 }
 
-// GetInsightValue returns the value of the insight (either risk score or issue).
+// Deprecated: Use GetNormalizedScore or GetSourceScore instead.
+// GetInsightValue returns the legacy string value of the insight (either risk score or issue).
 func GetInsightValue(trait *v2.SecurityInsightTrait) string {
 	if rs := trait.GetRiskScore(); rs != nil {
 		return rs.GetValue()
@@ -278,12 +343,48 @@ func GetInsightValue(trait *v2.SecurityInsightTrait) string {
 	return ""
 }
 
+// GetNormalizedScore returns the normalized risk score (0-100) from a risk score insight,
+// or 0 if not set or not a risk score.
+func GetNormalizedScore(trait *v2.SecurityInsightTrait) uint32 {
+	if rs := trait.GetRiskScore(); rs != nil {
+		return rs.GetNormalizedScore()
+	}
+	return 0
+}
+
+// GetSourceScore returns the original source score string from a risk score insight,
+// or empty string if not set or not a risk score.
+func GetSourceScore(trait *v2.SecurityInsightTrait) string {
+	if rs := trait.GetRiskScore(); rs != nil {
+		return rs.GetSourceScore()
+	}
+	return ""
+}
+
 // GetIssueSeverity returns the severity of an issue insight, or empty string if not set or not an issue.
 func GetIssueSeverity(trait *v2.SecurityInsightTrait) string {
 	if issue := trait.GetIssue(); issue != nil {
 		return issue.GetSeverity()
 	}
 	return ""
+}
+
+// Deprecated: Use GetRiskFactors instead.
+// GetRiskScoreFactors returns the legacy flat string factors from a risk score insight.
+func GetRiskScoreFactors(trait *v2.SecurityInsightTrait) []string {
+	if rs := trait.GetRiskScore(); rs != nil {
+		return rs.GetFactors()
+	}
+	return nil
+}
+
+// GetRiskFactors returns the structured risk factors from a risk score insight,
+// or nil if not set or not a risk score.
+func GetRiskFactors(trait *v2.SecurityInsightTrait) []*v2.RiskFactor {
+	if rs := trait.GetRiskScore(); rs != nil {
+		return rs.GetRiskFactors()
+	}
+	return nil
 }
 
 // --- Target type checkers ---

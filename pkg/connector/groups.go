@@ -94,7 +94,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, attrs 
 		return nil, nil, wrapError(err, "failed to get access group")
 	}
 
-	_, page, err := parsePageToken(attrs.PageToken(), &v2.ResourceId{ResourceType: g.resourceType.Id})
+	_, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}

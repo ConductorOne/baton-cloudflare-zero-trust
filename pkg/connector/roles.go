@@ -60,7 +60,7 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
 func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	_, page, err := parsePageToken(attrs.PageToken(), &v2.ResourceId{ResourceType: r.resourceType.Id})
+	_, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,7 +93,7 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, attrs r
 
 func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, attrs rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
-	_, page, err := parsePageToken(attrs.PageToken(), &v2.ResourceId{ResourceType: r.resourceType.Id})
+	_, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,7 +129,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, attrs r
 		rv   []*v2.Grant
 		info cloudflare.ResultInfo
 	)
-	bag, page, err := parsePageToken(attrs.PageToken(), &v2.ResourceId{ResourceType: r.resourceType.Id})
+	bag, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}
