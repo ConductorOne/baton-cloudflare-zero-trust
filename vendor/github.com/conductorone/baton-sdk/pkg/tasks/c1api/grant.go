@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type grantHelpers interface {
@@ -27,9 +28,9 @@ type grantTaskHandler struct {
 
 func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "grantTaskHandler.HandleTask")
-	defer span.End()
-
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	if g.task.GetGrant() == nil || g.task.GetGrant().GetEntitlement() == nil || g.task.GetGrant().GetPrincipal() == nil {
 		l.Error(
@@ -44,10 +45,10 @@ func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 	grant := g.task.GetGrant()
 
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Entitlement: grant.Entitlement,
-		Principal:   grant.Principal,
-	})
+	resp, err := cc.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
+		Entitlement: grant.GetEntitlement(),
+		Principal:   grant.GetPrincipal(),
+	}.Build())
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

@@ -10,7 +10,6 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -60,10 +59,10 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
-func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-	_, page, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
+func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+	_, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	accountID := cloudflare.ResourceContainer{
@@ -76,27 +75,27 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, token *
 		},
 	})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list roles")
+		return nil, nil, wrapError(err, "failed to list roles")
 	}
 
 	resources := make([]*v2.Resource, 0, len(roles))
 	for _, role := range roles {
 		resource, err := getRoleResource(ctx, role, roleResourceType, parentId)
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to create role resource")
+			return nil, nil, wrapError(err, "failed to create role resource")
 		}
 
 		resources = append(resources, resource)
 	}
 
-	return resources, "", nil, nil
+	return resources, nil, nil
 }
 
-func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, attrs rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
-	_, page, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
+	_, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	accountID := cloudflare.ResourceContainer{
@@ -109,7 +108,7 @@ func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, t
 		},
 	})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list roles")
+		return nil, nil, wrapError(err, "failed to list roles")
 	}
 
 	for _, role := range roles {
@@ -122,17 +121,17 @@ func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, t
 		rv = append(rv, ent.NewAssignmentEntitlement(resource, role.Name, options...))
 	}
 
-	return rv, "", nil, nil
+	return rv, nil, nil
 }
 
-func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, attrs rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var (
 		rv   []*v2.Grant
 		info cloudflare.ResultInfo
 	)
-	bag, page, err := parsePageToken(token.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
+	bag, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	members, info, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
@@ -140,7 +139,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 		PerPage: resourcePageSize,
 	})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list members")
+		return nil, nil, wrapError(err, "failed to list members")
 	}
 
 	for _, member := range members {
@@ -159,7 +158,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 			}
 			ur, err := newUserResource(accUser)
 			if err != nil {
-				return nil, "", nil, wrapError(err, "failed to create user resource")
+				return nil, nil, wrapError(err, "failed to create user resource")
 			}
 
 			gr := grant.NewGrant(resource, role.Name, ur.Id)
@@ -168,15 +167,15 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, token *
 	}
 
 	if info.TotalPages <= info.Page {
-		return rv, "", nil, nil
+		return rv, nil, nil
 	}
 
 	nextPage, err := getPageTokenFromPage(bag, page+1)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	return rv, nextPage, nil, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
 }
 
 // GetAccountMember returns an account member.

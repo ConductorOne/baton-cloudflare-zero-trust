@@ -57,6 +57,7 @@ type Transport struct {
 	roundTripper    http.RoundTripper
 	logger          *zap.Logger
 	log             bool
+	timeout         time.Duration
 	nextCycle       time.Time
 	mtx             sync.RWMutex
 }
@@ -108,18 +109,25 @@ func (uat *userAgentTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
 	// based on http.DefaultTransport
+	//
+	// Key tuning for Lambda-behind-proxy environments:
+	// - IdleConnTimeout is set shorter than typical proxy idle timeouts (Squid
+	//   defaults to ~60s) to avoid grabbing stale pooled connections on warm
+	//   Lambda invocations.
+	// - ResponseHeaderTimeout bounds how long we wait for the proxy/server to
+	//   start responding, preventing zombie connections.
 	baseTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-			DualStack: true,
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
 		TLSClientConfig:       t.tlsClientConfig,
 	}
 	err := http2.ConfigureTransport(baseTransport)
@@ -137,24 +145,33 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("uhttp: cycle failed: %w", err)
 	}
+	start := time.Now()
+	defer func() {
+		if r := recover(); r != nil {
+			if t.log {
+				duration := time.Since(start)
+				t.l(ctx).Error("HTTP request panic",
+					zap.String("http.method", req.Method),
+					zap.String("http.url_details.host", req.URL.Host),
+					zap.String("http.url_details.path", req.URL.Path),
+					zap.String("http.url_details.query", req.URL.RawQuery),
+					zap.Duration("duration", duration),
+					zap.Any("panic", r),
+				)
+			}
+			panic(r)
+		}
+	}()
+	resp, err := rt.RoundTrip(req)
+	err = wrapTransientNetworkError(err)
 	if t.log {
-		t.l(ctx).Debug("Request started",
+		duration := time.Since(start)
+		fields := []zap.Field{
 			zap.String("http.method", req.Method),
 			zap.String("http.url_details.host", req.URL.Host),
 			zap.String("http.url_details.path", req.URL.Path),
 			zap.String("http.url_details.query", req.URL.RawQuery),
-		)
-	}
-	resp, err := rt.RoundTrip(req)
-	if t.log {
-		fields := []zap.Field{zap.String("http.method", req.Method),
-			zap.String("http.url_details.host", req.URL.Host),
-			zap.String("http.url_details.path", req.URL.Path),
-			zap.String("http.url_details.query", req.URL.RawQuery),
-		}
-
-		if err != nil {
-			fields = append(fields, zap.Error(err))
+			zap.Duration("duration", duration),
 		}
 
 		if resp != nil {
@@ -170,7 +187,22 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			fields = append(fields, zap.Any("http.headers", headers))
 		}
 
-		t.l(ctx).Debug("Request complete", fields...)
+		l := t.l(ctx)
+		switch {
+		case err != nil:
+			// Always log errors - request failed to complete
+			fields = append(fields, zap.Error(err))
+			l.Error("HTTP request failed", fields...)
+		case resp != nil && resp.StatusCode >= 500:
+			// Server errors are noteworthy
+			l.Warn("HTTP request server error", fields...)
+		case resp != nil && resp.StatusCode >= 400:
+			// Client errors at debug - usually expected (404s, etc)
+			l.Debug("HTTP request client error", fields...)
+		default:
+			// Success
+			l.Debug("HTTP request complete", fields...)
+		}
 	}
 	return resp, err
 }

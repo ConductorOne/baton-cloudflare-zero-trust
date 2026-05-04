@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/cloudflare/cloudflare-go"
+	cfg "github.com/conductorone/baton-cloudflare-zero-trust/pkg/config"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
@@ -15,8 +17,8 @@ type Connector struct {
 }
 
 // ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
-func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client, d.accountId),
 		newGroupBuilder(d.client, d.accountId),
 		newRoleBuilder(d.client, d.accountId),
@@ -44,25 +46,23 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, accountId, apiToken, apiKey, email string) (*Connector, error) {
+func New(ctx context.Context, c *cfg.CloudflareZeroTrust, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
 	var (
 		client *cloudflare.API
 		err    error
 	)
-	if apiKey != "" && email != "" {
-		client, err = cloudflare.New(apiKey, email)
-	}
-
-	if apiToken != "" {
-		client, err = cloudflare.NewWithAPIToken(apiToken)
+	if c.ApiKey != "" && c.Email != "" {
+		client, err = cloudflare.New(c.ApiKey, c.Email)
+	} else if c.ApiToken != "" {
+		client, err = cloudflare.NewWithAPIToken(c.ApiToken)
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	return &Connector{
 		client:    client,
-		accountId: accountId,
-	}, nil
+		accountId: c.AccountId,
+	}, nil, nil
 }

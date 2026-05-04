@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/conductorone/baton-sdk/pkg/field"
+	cfg "github.com/conductorone/baton-cloudflare-zero-trust/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/test"
 	"github.com/conductorone/baton-sdk/pkg/ustrings"
 )
@@ -18,36 +18,18 @@ func TestConfigs(t *testing.T) {
 		{
 			"--account-id 1",
 			false,
-			"missing api key or api token",
+			"missing api token",
 		},
 		{
-			"--account-id --api-token 1",
+			"--account-id 1 --api-token 1",
 			true,
 			"with api token",
-		},
-		{
-			"--account-id --api-key 1",
-			false,
-			"with api key but missing email ID",
-		},
-		{
-			"--account-id --api-key 1 --email 1",
-			true,
-			"with api key",
-		},
-		{
-			"--account-id --api-key 1 --api-token 1 --email 1",
-			false,
-			"api key and api token",
 		},
 	}
 
 	test.ExerciseTestCasesFromExpressions(
 		t,
-		field.NewConfiguration(
-			configurationFields,
-			field.WithConstraints(fieldRelationships...),
-		),
+		cfg.Config,
 		nil,
 		ustrings.ParseFlags,
 		testCases,

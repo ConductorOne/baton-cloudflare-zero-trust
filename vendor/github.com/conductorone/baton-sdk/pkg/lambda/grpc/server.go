@@ -63,12 +63,12 @@ func (r *TransportStream) Response() (*Response, error) {
 	}
 
 	return &Response{
-		msg: &pbtransport.Response{
+		msg: pbtransport.Response_builder{
 			Resp:     anyResp,
 			Status:   anyStatus,
 			Headers:  headers,
 			Trailers: trailers,
-		},
+		}.Build(),
 	}, nil
 }
 
@@ -254,9 +254,7 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 		if ok {
 			err = appStatus.Err()
 		} else {
-			// Convert non-status application error to a status error with code
-			// Unknown, but handle context errors specifically.
-			appStatus = status.FromContextError(err)
+			appStatus = statusForApplicationError(err)
 			err = appStatus.Err()
 		}
 		return ErrorResponse(err), nil

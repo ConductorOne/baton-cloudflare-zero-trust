@@ -10,6 +10,7 @@ import (
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -34,16 +35,17 @@ func (m *localDiffer) ShouldDebug() bool {
 func (m *localDiffer) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_CreateSyncDiff{},
-		}
+		task = v1.Task_builder{
+			CreateSyncDiff: &v1.Task_CreateSyncDiffTask{},
+		}.Build()
 	})
 	return task, 0, nil
 }
 
 func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localDiffer.Process", trace.WithNewRoot())
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	log := ctxzap.Extract(ctx)
 
 	if m.baseSyncID == "" || m.appliedSyncID == "" {
@@ -64,7 +66,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
-	if err := file.Close(); err != nil {
+	if err := file.Close(ctx); err != nil {
 		return err
 	}
 

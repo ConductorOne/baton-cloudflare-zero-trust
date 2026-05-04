@@ -7,7 +7,6 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -52,10 +51,10 @@ func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
 }
 
 // List returns all the access groups from the database as resource objects.
-func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, attrs rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	groups, _, err := g.client.ListAccessGroups(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.ListAccessGroupsParams{})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list access groups")
+		return nil, nil, wrapError(err, "failed to list access groups")
 	}
 
 	resources := make([]*v2.Resource, 0, len(groups))
@@ -63,16 +62,16 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 		groupCopy := group
 		resource, err := newGroupResource(&groupCopy)
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to create group resource")
+			return nil, nil, wrapError(err, "failed to create group resource")
 		}
 
 		resources = append(resources, resource)
 	}
 
-	return resources, "", nil, nil
+	return resources, nil, nil
 }
 
-func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 	options := []ent.EntitlementOption{
 		ent.WithGrantableTo(userResourceType),
@@ -82,22 +81,22 @@ func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ 
 
 	rv = append(rv, ent.NewAssignmentEntitlement(resource, memberRole, options...))
 
-	return rv, "", nil, nil
+	return rv, nil, nil
 }
 
-func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, attrs rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var (
 		users []cloudflare.AccessUser
 		rv    []*v2.Grant
 	)
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), resource.Id.Resource)
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to get access group")
+		return nil, nil, wrapError(err, "failed to get access group")
 	}
 
-	_, page, err := parsePageToken(pToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
+	_, page, err := parsePageToken(attrs.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	memberUsers, _, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
@@ -105,7 +104,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		PerPage: resourcePageSize,
 	})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list members")
+		return nil, nil, wrapError(err, "failed to list members")
 	}
 
 	for _, memberUser := range memberUsers {
@@ -126,13 +125,13 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken
 		if groupGrants != nil && groupContainsUser(user.Email, groupGrants) {
 			ur, err := newUserResource(userCopy)
 			if err != nil {
-				return nil, "", nil, wrapError(err, "failed to create user resource")
+				return nil, nil, wrapError(err, "failed to create user resource")
 			}
 			gr := grant.NewGrant(resource, memberRole, ur.Id)
 			rv = append(rv, gr)
 		}
 	}
-	return rv, "", nil, nil
+	return rv, nil, nil
 }
 
 func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
