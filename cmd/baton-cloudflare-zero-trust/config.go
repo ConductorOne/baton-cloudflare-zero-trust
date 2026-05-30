@@ -22,11 +22,18 @@ var (
 		"email",
 		field.WithDescription("Cloudflare account email"),
 	)
+	baseURLField = field.StringField(
+		"base-url",
+		field.WithDescription("Override the Cloudflare API URL (for testing)"),
+		field.WithHidden(true),
+		field.WithExportTarget(field.ExportTargetCLIOnly),
+	)
 	configurationFields = []field.SchemaField{
 		accountIdField,
 		apiKeyField,
 		apiTokenField,
 		emailField,
+		baseURLField,
 	}
 	fieldRelationships = []field.SchemaFieldRelationship{
 		field.FieldsAtLeastOneUsed(apiTokenField, apiKeyField),
