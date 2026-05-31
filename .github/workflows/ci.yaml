@@ -20,12 +20,12 @@ jobs:
         CONNECTOR_PRINCIPAL: '9d9a62a5b834a8c9c5cf43cd234dfd4a'
         CONNECTOR_PRINCIPAL_TYPE: 'user'
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
       - name: Install Go
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-      - name: Checkout code
-        uses: actions/checkout@v4
       - name: Build baton-cloudflare-zero-trust
         run: go build ./cmd/baton-cloudflare-zero-trust
       - name: Test grant/revoke
