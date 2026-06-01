@@ -36,4 +36,9 @@ var (
 		},
 		Annotations: annotationsForRoleResourceType(),
 	}
+	serviceTokenResourceType = &v2.ResourceType{
+		Id:          "service_token",
+		DisplayName: "Service Token",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_SECRET},
+	}
 )
