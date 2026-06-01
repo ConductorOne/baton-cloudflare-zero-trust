@@ -21,6 +21,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 		newGroupBuilder(d.client, d.accountId),
 		newRoleBuilder(d.client, d.accountId),
 		newMemberBuilder(d.client, d.accountId),
+		newServiceTokenBuilder(d.client, d.accountId),
 	}
 }
 

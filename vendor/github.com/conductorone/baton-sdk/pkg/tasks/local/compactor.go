@@ -9,6 +9,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
+	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -19,10 +21,11 @@ type localCompactor struct {
 
 	compactableSyncs []*synccompactor.CompactableSync
 	outputPath       string
+	tmpDir           string
 }
 
 func (m *localCompactor) GetTempDir() string {
-	return ""
+	return m.tmpDir
 }
 
 func (m *localCompactor) ShouldDebug() bool {
@@ -32,19 +35,25 @@ func (m *localCompactor) ShouldDebug() bool {
 func (m *localCompactor) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_CompactSyncs_{},
-		}
+		task = v1.Task_builder{
+			CompactSyncs: &v1.Task_CompactSyncs{},
+		}.Build()
 	})
 	return task, 0, nil
 }
 
 func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localCompactor.Process", trace.WithNewRoot())
-	defer span.End()
+	ctx = uotelzap.WithSpanLogFields(ctx)
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	log := ctxzap.Extract(ctx)
 
-	compactor, cleanup, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs)
+	var compactOpts []synccompactor.Option
+	if m.tmpDir != "" {
+		compactOpts = append(compactOpts, synccompactor.WithTmpDir(m.tmpDir))
+	}
+	compactor, cleanup, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs, compactOpts...)
 	if err != nil {
 		return err
 	}
@@ -62,10 +71,11 @@ func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.Co
 	return nil
 }
 
-// NewLocalCompactor returns a task manager that queues a revoke task.
-func NewLocalCompactor(ctx context.Context, outputPath string, compactableSyncs []*synccompactor.CompactableSync) tasks.Manager {
+// NewLocalCompactor returns a task manager that queues a compaction task.
+func NewLocalCompactor(ctx context.Context, outputPath string, compactableSyncs []*synccompactor.CompactableSync, tmpDir string) tasks.Manager {
 	return &localCompactor{
 		compactableSyncs: compactableSyncs,
 		outputPath:       outputPath,
+		tmpDir:           tmpDir,
 	}
 }
