@@ -13,10 +13,12 @@ var (
 	apiKeyField = field.StringField(
 		"api-key",
 		field.WithDescription("Cloudflare API key"),
+		field.WithIsSecret(true),
 	)
 	apiTokenField = field.StringField(
 		"api-token",
 		field.WithDescription("Cloudflare API token"),
+		field.WithIsSecret(true),
 	)
 	emailField = field.StringField(
 		"email",
