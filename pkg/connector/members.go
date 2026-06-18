@@ -6,8 +6,7 @@ import (
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/pagination"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 type memberBuilder struct {
@@ -22,11 +21,11 @@ func (m *memberBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 
 // List returns all the members of an account as resource objects.
 // Members include a UserTrait because they are the 'shape' of a standard member.
-func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	var info cloudflare.ResultInfo
-	bag, page, err := parsePageToken(pToken.Token, &v2.ResourceId{ResourceType: m.resourceType.Id})
+	bag, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: m.resourceType.Id})
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
 	memberUsers, info, err := m.client.AccountMembers(ctx, m.accountId, cloudflare.PaginationOptions{
@@ -34,7 +33,7 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		PerPage: resourcePageSize,
 	})
 	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list members")
+		return nil, nil, wrapError(err, "failed to list members")
 	}
 
 	resources := make([]*v2.Resource, 0, len(memberUsers))
@@ -49,32 +48,32 @@ func (m *memberBuilder) List(ctx context.Context, parentResourceID *v2.ResourceI
 		}
 		resource, err := newUserResource(accUser)
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to create user resource")
+			return nil, nil, wrapError(err, "failed to create user resource")
 		}
 
 		resources = append(resources, resource)
 	}
 
 	if info.TotalPages <= info.Page {
-		return resources, "", nil, nil
+		return resources, nil, nil
 	}
 
 	nextPage, err := getPageTokenFromPage(bag, page+1)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	return resources, nextPage, nil, nil
+	return resources, &rs.SyncOpResults{NextPageToken: nextPage}, nil
 }
 
-// Entitlements always returns an empty slice for users.
-func (m *memberBuilder) Entitlements(ctx context.Context, resource *v2.Resource, token *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+// Entitlements always returns an empty slice for members.
+func (m *memberBuilder) Entitlements(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
-// Grants always returns an empty slice for users since they don't have any entitlements.
-func (m *memberBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+// Grants always returns an empty slice for members since they don't have any entitlements.
+func (m *memberBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 func newMemberBuilder(client *cloudflare.API, accountId string) *memberBuilder {
