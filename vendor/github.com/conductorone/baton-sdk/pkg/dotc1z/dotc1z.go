@@ -7,19 +7,47 @@ import (
 	"io"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
-var tracer = otel.Tracer("baton-sdk/pkg.dotc1z")
+var (
+	tracer = otel.Tracer("baton-sdk/pkg.dotc1z")
+	meter  = otel.Meter("baton-sdk/pkg.dotc1z")
+
+	// One increment per grant written. The slim attribute lets you
+	// confirm a slim-flipped connector is actually producing slim rows.
+	// Fires per grant — don't add high-cardinality attributes.
+	grantWriteCounter, _ = meter.Int64Counter(
+		"c1z_grant_writes_total",
+		metric.WithDescription("Grant writes through the c1z writer. Attribute: slim (bool)."),
+	)
+
+	// Increments when unsafeForSlim keeps a grant full-blob on a
+	// slim-enabled connector. Use to measure how often the hatch fires.
+	grantUnsafeForSlimCounter, _ = meter.Int64Counter(
+		"c1z_grant_unsafe_for_slim_total",
+		metric.WithDescription("Grants kept full-blob by the unsafeForSlim escape hatch on slim-enabled writers."),
+	)
+
+	// Pre-built so we don't allocate a fresh attribute.Set on every
+	// grant write. WithAttributes sorts and dedups on each call;
+	// WithAttributeSet on a shared Set is allocation-free.
+	slimWriteAttrTrue  = metric.WithAttributeSet(attribute.NewSet(attribute.Bool("slim", true)))
+	slimWriteAttrFalse = metric.WithAttributeSet(attribute.NewSet(attribute.Bool("slim", false)))
+)
 
 // NewC1FileReader returns a connectorstore.Reader implementation for the given sqlite db file path.
-func NewC1FileReader(ctx context.Context, dbFilePath string) (connectorstore.Reader, error) {
-	return NewC1File(ctx, dbFilePath)
+func NewC1FileReader(ctx context.Context, dbFilePath string, opts ...C1FOption) (connectorstore.Reader, error) {
+	return NewC1File(ctx, dbFilePath, opts...)
 }
 
 // NewC1ZFileDecoder wraps a given .c1z io.Reader that validates the .c1z and decompresses/decodes the underlying file.
-// Defaults: 32MiB max memory and 2GiB max decoded size
+// Defaults: 128MiB max memory and 3GiB max decoded size
 // You must close the resulting io.ReadCloser when you are done, do not forget to close the given io.Reader if necessary.
 func NewC1ZFileDecoder(f io.Reader, opts ...DecoderOption) (io.ReadCloser, error) {
 	return NewDecoder(f, opts...)
@@ -50,10 +78,20 @@ func C1ZFileCheckHeader(f io.ReadSeeker) (bool, error) {
 }
 
 func NewExternalC1FileReader(ctx context.Context, tmpDir string, externalResourceC1ZPath string) (connectorstore.Reader, error) {
-	dbFilePath, err := loadC1z(externalResourceC1ZPath, tmpDir)
+	dbFilePath, _, err := decompressC1z(externalResourceC1ZPath, tmpDir)
 	if err != nil {
 		return nil, fmt.Errorf("error loading external resource c1z file: %w", err)
 	}
+	l := ctxzap.Extract(ctx)
+	l.Debug("new-external-c1z-file: decompressed c1z",
+		zap.String("db_file_path", dbFilePath),
+		zap.String("external_resource_c1z_path", externalResourceC1ZPath),
+	)
 
-	return NewC1File(ctx, dbFilePath)
+	c1File, err := NewC1File(ctx, dbFilePath, WithC1FReadOnly(true))
+	if err != nil {
+		return nil, cleanupDbDir(dbFilePath, err)
+	}
+
+	return c1File, nil
 }

@@ -10,6 +10,11 @@ import (
 
 var ErrWrongValueType = errors.New("unable to cast any to concrete type")
 
+const (
+	Oauth2ClientIDFieldName     = "oauth2_client_cred_grant_client_id"
+	Oauth2ClientSecretFieldName = "oauth2_client_cred_grant_client_secret" //nolint:gosec // this is not a credential
+)
+
 type Variant string
 
 const (
@@ -74,6 +79,9 @@ type SchemaField struct {
 	ConnectorConfig connectorConfig
 
 	WasReExported bool
+
+	// Groups
+	FieldGroups []SchemaFieldGroup
 }
 
 type SchemaTypes interface {
@@ -213,6 +221,45 @@ func StringField(name string, optional ...fieldOption) SchemaField {
 	return field
 }
 
+func FileUploadField(name string, bonusStrings []string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:    name,
+		Variant:      StringVariant,
+		DefaultValue: "",
+		ExportTarget: ExportTargetGUI,
+		Rules:        FieldRule{},
+		SyncerConfig: syncerConfig{},
+		ConnectorConfig: connectorConfig{
+			FieldType:    FileUpload,
+			BonusStrings: bonusStrings,
+		},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
+func RandomField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:       name,
+		Variant:         StringVariant,
+		DefaultValue:    "",
+		ExportTarget:    ExportTargetGUI,
+		Rules:           FieldRule{},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{FieldType: Randomize},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
 func IntField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:       name,
@@ -274,10 +321,28 @@ func SelectField(name string, options []string, optional ...fieldOption) SchemaF
 		DefaultValue: "",
 		ExportTarget: ExportTargetGUI,
 		Rules: FieldRule{
-			s: &v1_conf.StringRules{In: options},
+			s: v1_conf.StringRules_builder{In: options}.Build(),
 		},
 		SyncerConfig:    syncerConfig{},
 		ConnectorConfig: connectorConfig{FieldType: Text},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
+func Oauth2Field(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:       name,
+		Variant:         StringVariant,
+		DefaultValue:    "",
+		ExportTarget:    ExportTargetGUI,
+		Rules:           FieldRule{},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{FieldType: OAuth2},
 	}
 
 	for _, o := range optional {
