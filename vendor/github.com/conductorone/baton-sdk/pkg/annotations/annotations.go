@@ -124,7 +124,11 @@ func (a *Annotations) WithRateLimiting(rateLimit *v2.RateLimitDescription) *Anno
 	return a
 }
 
+// NOTE: the store is the only usage of this.
 func GetSyncIdFromAnnotations(annos Annotations) (string, error) {
+	if len(annos) == 0 {
+		return "", nil
+	}
 	syncDetails := &c1zpb.SyncDetails{}
 	ok, err := annos.Pick(syncDetails)
 	if err != nil {
