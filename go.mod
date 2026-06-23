@@ -4,7 +4,7 @@ go 1.25.2
 
 require (
 	github.com/cloudflare/cloudflare-go v0.83.0
-	github.com/conductorone/baton-sdk v0.15.6
+	github.com/conductorone/baton-sdk v0.15.7
 	github.com/ennyjfrick/ruleguard-logfatal v0.0.2
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
