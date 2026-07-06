@@ -12,6 +12,7 @@ jobs:
         BATON_API_KEY: ${{ secrets.BATON_API_KEY }}
         BATON_EMAIL: ${{ secrets.BATON_EMAIL }}
         BATON_ACCOUNT_ID: ${{ secrets.BATON_ACCOUNT_ID }}
+        BATON_AUTH_METHOD: ${{ secrets.BATON_AUTH_METHOD }}
         BATON_LOG_LEVEL: 'debug'
     steps:
       - name: Checkout code
