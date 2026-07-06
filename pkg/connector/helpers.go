@@ -13,6 +13,7 @@ func annotationsForUserResourceType() annotations.Annotations {
 	annos := annotations.Annotations{}
 	annos.Update(&v2.SkipEntitlementsAndGrants{})
 	annos.Update(capabilityPermissions(
+		"Account Settings Read",
 		"Access: Apps and Policies Read",
 		"Memberships Read",
 	))

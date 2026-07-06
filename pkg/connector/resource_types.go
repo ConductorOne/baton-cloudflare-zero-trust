@@ -17,6 +17,7 @@ var (
 		DisplayName: "Group",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
 		Annotations: annotations.New(capabilityPermissions(
+			"Account Settings Read",
 			"Access: Organizations, Identity Providers, and Groups Read",
 			"Access: Organizations, Identity Providers, and Groups Write",
 			"Memberships Read",
