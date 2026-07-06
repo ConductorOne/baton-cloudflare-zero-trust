@@ -237,7 +237,10 @@ func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ r
 // correctly get no role grants, since they can't hold an account role.
 func (o *userBuilder) Grants(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	roleIDsCSV, err := getValueFromUserTrait(resource, roleIDsProfileField)
-	if err != nil || roleIDsCSV == "" {
+	if err != nil {
+		return nil, nil, wrapError(err, "failed to read role IDs from user profile")
+	}
+	if roleIDsCSV == "" {
 		return nil, nil, nil
 	}
 
