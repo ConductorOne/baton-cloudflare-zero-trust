@@ -4,13 +4,25 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
+
+// roleIDsProfileField is the user profile key that carries an account
+// member's assigned role IDs (comma-separated), captured once in
+// newUserResourceFromMember at List() time. Cloudflare has no way to look up
+// a single member by native user ID or to filter members by role, so any
+// lookup done from inside Grants() would mean re-scanning the entire member
+// list per user (or, before this change, per role). Capturing role data
+// during the member list pass List() already does avoids that entirely:
+// Grants() reads it straight off the persisted resource with no API call.
+const roleIDsProfileField = "role_ids"
 
 // User resources are sourced from two Cloudflare APIs. Both are paginated
 // independently within a single bag so that a sync fetches every user.
@@ -74,17 +86,39 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 }
 
 // newUserResourceFromMember builds a user resource from an account member so
-// that account members and Access users are emitted as a single resource type.
+// that account members and Access users are emitted as a single resource
+// type. The member's role IDs are embedded in the profile so that
+// userBuilder.Grants can emit role assignment grants without any further
+// API calls.
 func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, error) {
-	accessSeat := false
-	accUser := cloudflare.AccessUser{
-		ID:         member.User.ID,
-		Name:       fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
-		Email:      member.User.Email,
-		AccessSeat: &accessSeat,
+	firstName, lastName := member.User.FirstName, member.User.LastName
+	displayName := strings.TrimSpace(fmt.Sprintf("%s %s", firstName, lastName))
+	if displayName == "" {
+		displayName = member.User.Email
 	}
 
-	return newUserResource(accUser)
+	roleIDs := make([]string, 0, len(member.Roles))
+	for _, role := range member.Roles {
+		roleIDs = append(roleIDs, role.ID)
+	}
+
+	profile := map[string]interface{}{
+		"login":             member.User.Email,
+		"first_name":        firstName,
+		"last_name":         lastName,
+		"email":             member.User.Email,
+		"access_seat":       false,
+		roleIDsProfileField: strings.Join(roleIDs, ","),
+	}
+
+	userTraits := []rs.UserTraitOption{
+		rs.WithUserProfile(profile),
+		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
+		rs.WithUserLogin(member.User.Email),
+		rs.WithEmail(member.User.Email, true),
+	}
+
+	return rs.NewUserResource(displayName, userResourceType, member.User.ID, userTraits)
 }
 
 // List returns all the users from both the Access users and account members
@@ -151,6 +185,14 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 
 		resources = make([]*v2.Resource, 0, len(members))
 		for _, member := range members {
+			if member.User.ID == "" {
+				// A pending (not yet accepted) invite has no native Cloudflare
+				// user ID assigned. There's no stable ID to sync this member
+				// as a user resource yet - it'll be picked up on a later sync
+				// once the invite is accepted and Cloudflare assigns one.
+				continue
+			}
+
 			resource, err := newUserResourceFromMember(member)
 			if err != nil {
 				return nil, nil, wrapError(err, "failed to create user resource")
@@ -188,9 +230,25 @@ func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ r
 	return nil, nil, nil
 }
 
-// Grants always returns an empty slice for users since they don't have any entitlements.
-func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	return nil, nil, nil
+// Grants emits this user's role assignment grants using the role IDs
+// embedded in their profile by newUserResourceFromMember at List() time —
+// no API call needed here at all. Pure Access users (synced via
+// newUserResource, never through the member path) have no role_ids field and
+// correctly get no role grants, since they can't hold an account role.
+func (o *userBuilder) Grants(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	roleIDsCSV, err := getValueFromUserTrait(resource, roleIDsProfileField)
+	if err != nil || roleIDsCSV == "" {
+		return nil, nil, nil
+	}
+
+	roleIDs := strings.Split(roleIDsCSV, ",")
+	grants := make([]*v2.Grant, 0, len(roleIDs))
+	for _, roleID := range roleIDs {
+		roleRes := &v2.Resource{Id: &v2.ResourceId{ResourceType: roleResourceType.Id, Resource: roleID}}
+		grants = append(grants, grant.NewGrant(roleRes, roleAssignmentEntitlement, resource.Id))
+	}
+
+	return grants, nil, nil
 }
 
 func newUserBuilder(client *cloudflare.API, accountId string) *userBuilder {

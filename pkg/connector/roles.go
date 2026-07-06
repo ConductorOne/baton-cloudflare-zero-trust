@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -64,21 +63,18 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
-func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	_, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
-	if err != nil {
-		return nil, nil, err
-	}
-
+//
+// ListAccountRoles only returns a ResultInfo (and thus a way to detect more
+// pages) when called without explicit Page/PerPage; passing those turns off
+// the client's own pagination and leaves no signal that more roles exist. So
+// this is called with no paging params, letting the client fetch every role
+// internally in a single call, the same way groupBuilder.List calls
+// ListAccessGroups.
+func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	accountID := cloudflare.ResourceContainer{
 		Identifier: r.accountId,
 	}
-	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-		ResultInfo: cloudflare.ResultInfo{
-			Page:    page,
-			PerPage: resourcePageSize,
-		},
-	})
+	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{})
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list roles")
 	}
@@ -113,58 +109,16 @@ func (r *roleBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([
 	return []*v2.Entitlement{assignment}, nil, nil
 }
 
-func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	var (
-		rv   []*v2.Grant
-		info cloudflare.ResultInfo
-	)
-	bag, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	members, info, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
-		Page:    page,
-		PerPage: resourcePageSize,
-	})
-	if err != nil {
-		return nil, nil, wrapError(err, "failed to list members")
-	}
-
-	for _, member := range members {
-		for _, role := range member.Roles {
-			if role.ID != resource.Id.Resource {
-				continue
-			}
-
-			accUser := cloudflare.AccessUser{
-				ID:    member.User.ID,
-				Name:  fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
-				Email: member.User.Email,
-				AccessSeat: func(seat bool) *bool {
-					return &seat
-				}(false),
-			}
-			ur, err := newUserResource(accUser)
-			if err != nil {
-				return nil, nil, wrapError(err, "failed to create user resource")
-			}
-
-			gr := grant.NewGrant(resource, roleAssignmentEntitlement, ur.Id)
-			rv = append(rv, gr)
-		}
-	}
-
-	if info.TotalPages <= info.Page {
-		return rv, nil, nil
-	}
-
-	nextPage, err := getPageTokenFromPage(bag, page+1)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
+// Grants always returns nil. Role assignment grants are emitted from
+// userBuilder.Grants instead: Cloudflare has no way to list "members with
+// role X" directly, so computing grants role-by-role here would mean
+// re-fetching and re-scanning the entire member list once per role (and
+// Cloudflare ships 100+ built-in roles that most tenants never assign).
+// userBuilder.Grants instead reads role IDs that were captured once, per
+// member, while userBuilder.List paginates the member list for the merged
+// user sync — no extra API calls at all.
+func (r *roleBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 // GetAccountMember returns an account member.
@@ -248,18 +202,15 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 }
 
 func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, error) {
-	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	member, err := findMemberByUserID(ctx, r.client, r.accountId, userId)
 	if err != nil {
 		return "", wrapError(err, "failed to list user members")
 	}
-
-	for _, memberUser := range memberUsers {
-		if memberUser.User.ID == userId {
-			return memberUser.ID, nil
-		}
+	if member == nil {
+		return "", nil
 	}
 
-	return "", nil
+	return member.ID, nil
 }
 
 func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (annotations.Annotations, error) {
