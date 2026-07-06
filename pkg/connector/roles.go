@@ -26,6 +26,11 @@ type roleBuilder struct {
 
 const errMissingAccountID = "required missing account ID"
 
+// roleAssignmentEntitlement is the slug of the single assignment entitlement
+// declared for every role resource. It must stay in sync with the slug used
+// when constructing grants in Grants().
+const roleAssignmentEntitlement = "assigned"
+
 var ErrMissingAccountID = errors.New(errMissingAccountID)
 
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
@@ -91,37 +96,21 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, opts rs
 	return resources, nil, nil
 }
 
-func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
-	var rv []*v2.Entitlement
-	_, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
-	if err != nil {
-		return nil, nil, err
-	}
+// Entitlements returns nil. Role entitlements are declared statically via
+// StaticEntitlements, and the role resource type is annotated with
+// SkipEntitlements, so the SDK never invokes this per-resource hook.
+func (r *roleBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
+}
 
-	accountID := cloudflare.ResourceContainer{
-		Identifier: r.accountId,
-	}
-	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-		ResultInfo: cloudflare.ResultInfo{
-			Page:    page,
-			PerPage: resourcePageSize,
-		},
-	})
-	if err != nil {
-		return nil, nil, wrapError(err, "failed to list roles")
-	}
+func (r *roleBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	assignment := ent.NewAssignmentEntitlement(nil, roleAssignmentEntitlement,
+		ent.WithGrantableTo(userResourceType),
+		ent.WithDisplayName("Assigned"),
+		ent.WithDescription("Assigned to the Cloudflare role"),
+	)
 
-	for _, role := range roles {
-		options := []ent.EntitlementOption{
-			ent.WithGrantableTo(roleResourceType),
-			ent.WithDisplayName(fmt.Sprintf("%s Role %s", resource.DisplayName, role.Name)),
-			ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare role", role.Name, resource.DisplayName)),
-		}
-
-		rv = append(rv, ent.NewAssignmentEntitlement(resource, role.Name, options...))
-	}
-
-	return rv, nil, nil
+	return []*v2.Entitlement{assignment}, nil, nil
 }
 
 func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
@@ -161,7 +150,7 @@ func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs
 				return nil, nil, wrapError(err, "failed to create user resource")
 			}
 
-			gr := grant.NewGrant(resource, role.Name, ur.Id)
+			gr := grant.NewGrant(resource, roleAssignmentEntitlement, ur.Id)
 			rv = append(rv, gr)
 		}
 	}
