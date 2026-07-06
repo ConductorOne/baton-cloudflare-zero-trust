@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -25,6 +24,11 @@ type roleBuilder struct {
 }
 
 const errMissingAccountID = "required missing account ID"
+
+// roleAssignmentEntitlement is the slug of the single assignment entitlement
+// declared for every role resource. It must stay in sync with the slug used
+// when constructing grants in Grants().
+const roleAssignmentEntitlement = "assigned"
 
 var ErrMissingAccountID = errors.New(errMissingAccountID)
 
@@ -59,21 +63,18 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
-func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	_, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
-	if err != nil {
-		return nil, nil, err
-	}
-
+//
+// ListAccountRoles only returns a ResultInfo (and thus a way to detect more
+// pages) when called without explicit Page/PerPage; passing those turns off
+// the client's own pagination and leaves no signal that more roles exist. So
+// this is called with no paging params, letting the client fetch every role
+// internally in a single call, the same way groupBuilder.List calls
+// ListAccessGroups.
+func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	accountID := cloudflare.ResourceContainer{
 		Identifier: r.accountId,
 	}
-	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-		ResultInfo: cloudflare.ResultInfo{
-			Page:    page,
-			PerPage: resourcePageSize,
-		},
-	})
+	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{})
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list roles")
 	}
@@ -91,91 +92,33 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, opts rs
 	return resources, nil, nil
 }
 
-func (r *roleBuilder) Entitlements(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
-	var rv []*v2.Entitlement
-	_, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
-	if err != nil {
-		return nil, nil, err
-	}
-
-	accountID := cloudflare.ResourceContainer{
-		Identifier: r.accountId,
-	}
-	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{
-		ResultInfo: cloudflare.ResultInfo{
-			Page:    page,
-			PerPage: resourcePageSize,
-		},
-	})
-	if err != nil {
-		return nil, nil, wrapError(err, "failed to list roles")
-	}
-
-	for _, role := range roles {
-		options := []ent.EntitlementOption{
-			ent.WithGrantableTo(roleResourceType),
-			ent.WithDisplayName(fmt.Sprintf("%s Role %s", resource.DisplayName, role.Name)),
-			ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare role", role.Name, resource.DisplayName)),
-		}
-
-		rv = append(rv, ent.NewAssignmentEntitlement(resource, role.Name, options...))
-	}
-
-	return rv, nil, nil
+// Entitlements returns nil. Role entitlements are declared statically via
+// StaticEntitlements, and the role resource type is annotated with
+// SkipEntitlements, so the SDK never invokes this per-resource hook.
+func (r *roleBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
-func (r *roleBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
-	var (
-		rv   []*v2.Grant
-		info cloudflare.ResultInfo
+func (r *roleBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	assignment := ent.NewAssignmentEntitlement(nil, roleAssignmentEntitlement,
+		ent.WithGrantableTo(userResourceType),
+		ent.WithDisplayName("Assigned"),
+		ent.WithDescription("Assigned to the Cloudflare role"),
 	)
-	bag, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: r.resourceType.Id})
-	if err != nil {
-		return nil, nil, err
-	}
 
-	members, info, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{
-		Page:    page,
-		PerPage: resourcePageSize,
-	})
-	if err != nil {
-		return nil, nil, wrapError(err, "failed to list members")
-	}
+	return []*v2.Entitlement{assignment}, nil, nil
+}
 
-	for _, member := range members {
-		for _, role := range member.Roles {
-			if role.ID != resource.Id.Resource {
-				continue
-			}
-
-			accUser := cloudflare.AccessUser{
-				ID:    member.User.ID,
-				Name:  fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
-				Email: member.User.Email,
-				AccessSeat: func(seat bool) *bool {
-					return &seat
-				}(false),
-			}
-			ur, err := newUserResource(accUser)
-			if err != nil {
-				return nil, nil, wrapError(err, "failed to create user resource")
-			}
-
-			gr := grant.NewGrant(resource, role.Name, ur.Id)
-			rv = append(rv, gr)
-		}
-	}
-
-	if info.TotalPages <= info.Page {
-		return rv, nil, nil
-	}
-
-	nextPage, err := getPageTokenFromPage(bag, page+1)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
+// Grants always returns nil. Role assignment grants are emitted from
+// userBuilder.Grants instead: Cloudflare has no way to list "members with
+// role X" directly, so computing grants role-by-role here would mean
+// re-fetching and re-scanning the entire member list once per role (and
+// Cloudflare ships 100+ built-in roles that most tenants never assign).
+// userBuilder.Grants instead reads role IDs that were captured once, per
+// member, while userBuilder.List paginates the member list for the merged
+// user sync — no extra API calls at all.
+func (r *roleBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 // GetAccountMember returns an account member.
@@ -208,6 +151,29 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 	return accountMemberListResponse, err
 }
 
+// rolePermissionGroup finds the permission group that mirrors the given
+// classic role. Accounts enrolled in Domain Scoped Roles represent grants via
+// Policies (a permission group + resource group pair), not the legacy Roles
+// list, and reject an update that sets Roles on a member that already has
+// Policies. Permission groups share their name with the role they mirror, so
+// the role's name is used to find the equivalent group.
+func (r *roleBuilder) rolePermissionGroup(ctx context.Context, roleID string) (cloudflare.PermissionGroup, error) {
+	role, err := r.client.GetAccountRole(ctx, cloudflare.AccountIdentifier(r.accountId), roleID)
+	if err != nil {
+		return cloudflare.PermissionGroup{}, wrapError(err, "failed to get role")
+	}
+
+	groups, err := r.client.ListPermissionGroups(ctx, cloudflare.AccountIdentifier(r.accountId), cloudflare.ListPermissionGroupParams{RoleName: role.Name})
+	if err != nil {
+		return cloudflare.PermissionGroup{}, wrapError(err, "failed to list permission groups")
+	}
+	if len(groups) == 0 {
+		return cloudflare.PermissionGroup{}, fmt.Errorf("baton-cloudflare-zero-trust: no permission group found for role %q", role.Name)
+	}
+
+	return groups[0], nil
+}
+
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
 		err    error
@@ -234,9 +200,39 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	roles := []cloudflare.AccountRole{{
-		ID: entitlement.Resource.Id.Resource},
+	roleId := entitlement.Resource.Id.Resource
+
+	// A member with any existing Policies is on the Domain Scoped Roles
+	// model; grant via an equivalent Policy instead of the legacy Roles
+	// list, which Cloudflare rejects once Policies are present.
+	if len(account.Result.Policies) > 0 {
+		group, err := r.rolePermissionGroup(ctx, roleId)
+		if err != nil {
+			return nil, err
+		}
+
+		newPolicy := cloudflare.Policy{
+			PermissionGroups: []cloudflare.PermissionGroup{{ID: group.ID}},
+			ResourceGroups:   []cloudflare.ResourceGroup{cloudflare.NewResourceGroupForAccount(cloudflare.Account{ID: r.accountId})},
+			Access:           "allow",
+		}
+
+		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+			Policies: append(account.Result.Policies, newPolicy),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		l.Warn("Role has been created.",
+			zap.String("ID", member.ID),
+			zap.String("Status", member.Status),
+		)
+
+		return nil, nil
 	}
+
+	roles := []cloudflare.AccountRole{{ID: roleId}}
 	for _, role := range account.Result.Roles {
 		roles = append(roles, cloudflare.AccountRole{
 			ID: role.ID,
@@ -259,18 +255,15 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 }
 
 func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, error) {
-	memberUsers, _, err := r.client.AccountMembers(ctx, r.accountId, cloudflare.PaginationOptions{})
+	member, err := findMemberByUserID(ctx, r.client, r.accountId, userId)
 	if err != nil {
 		return "", wrapError(err, "failed to list user members")
 	}
-
-	for _, memberUser := range memberUsers {
-		if memberUser.User.ID == userId {
-			return memberUser.ID, nil
-		}
+	if member == nil {
+		return "", nil
 	}
 
-	return "", nil
+	return member.ID, nil
 }
 
 func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (annotations.Annotations, error) {
@@ -298,6 +291,51 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
 	if err != nil {
 		return nil, err
+	}
+
+	// See Grant: a member with any existing Policies is on the Domain
+	// Scoped Roles model, so revoke by removing the equivalent Policy
+	// instead of filtering the legacy Roles list.
+	if len(account.Result.Policies) > 0 {
+		group, err := r.rolePermissionGroup(ctx, roleId)
+		if err != nil {
+			return nil, err
+		}
+
+		// Strip only the matching permission group from each policy - a
+		// policy can bundle multiple permission groups together, and
+		// dropping the whole policy would revoke unrelated grants it also
+		// carries. Only drop a policy if removing the group leaves it with
+		// no permission groups at all.
+		policies := make([]cloudflare.Policy, 0, len(account.Result.Policies))
+		for _, policy := range account.Result.Policies {
+			remaining := make([]cloudflare.PermissionGroup, 0, len(policy.PermissionGroups))
+			for _, pg := range policy.PermissionGroups {
+				if pg.ID == group.ID {
+					continue
+				}
+				remaining = append(remaining, pg)
+			}
+			if len(remaining) == 0 {
+				continue
+			}
+			policy.PermissionGroups = remaining
+			policies = append(policies, policy)
+		}
+
+		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+			Policies: policies,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		l.Warn("Role has been revoked.",
+			zap.String("ID", member.ID),
+			zap.String("Status", member.Status),
+		)
+
+		return nil, nil
 	}
 
 	roles := []cloudflare.AccountRole{}

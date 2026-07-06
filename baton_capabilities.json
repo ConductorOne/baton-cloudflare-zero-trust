@@ -21,6 +21,14 @@
         "displayName": "Role",
         "traits": [
           "TRAIT_ROLE"
+        ],
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlements"
+          },
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.SkipGrants"
+          }
         ]
       },
       "capabilities": [
@@ -38,7 +46,7 @@
         ],
         "annotations": [
           {
-            "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlementsAndGrants"
+            "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlements"
           }
         ]
       },
