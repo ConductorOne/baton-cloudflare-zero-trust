@@ -28,8 +28,8 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 // Metadata returns metadata about the connector.
 func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
-		DisplayName: "Baton Cloudflare Zero Trust",
-		Description: "The template implementation of a baton connector",
+		DisplayName: "Cloudflare Zero Trust",
+		Description: "Syncs users, groups, and roles from Cloudflare Zero Trust and provisions group and role access.",
 	}, nil
 }
 
