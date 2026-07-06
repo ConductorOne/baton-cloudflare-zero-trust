@@ -151,6 +151,29 @@ func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, me
 	return accountMemberListResponse, err
 }
 
+// rolePermissionGroup finds the permission group that mirrors the given
+// classic role. Accounts enrolled in Domain Scoped Roles represent grants via
+// Policies (a permission group + resource group pair), not the legacy Roles
+// list, and reject an update that sets Roles on a member that already has
+// Policies. Permission groups share their name with the role they mirror, so
+// the role's name is used to find the equivalent group.
+func (r *roleBuilder) rolePermissionGroup(ctx context.Context, roleID string) (cloudflare.PermissionGroup, error) {
+	role, err := r.client.GetAccountRole(ctx, cloudflare.AccountIdentifier(r.accountId), roleID)
+	if err != nil {
+		return cloudflare.PermissionGroup{}, wrapError(err, "failed to get role")
+	}
+
+	groups, err := r.client.ListPermissionGroups(ctx, cloudflare.AccountIdentifier(r.accountId), cloudflare.ListPermissionGroupParams{RoleName: role.Name})
+	if err != nil {
+		return cloudflare.PermissionGroup{}, wrapError(err, "failed to list permission groups")
+	}
+	if len(groups) == 0 {
+		return cloudflare.PermissionGroup{}, fmt.Errorf("baton-cloudflare-zero-trust: no permission group found for role %q", role.Name)
+	}
+
+	return groups[0], nil
+}
+
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
 		err    error
@@ -177,9 +200,39 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	roles := []cloudflare.AccountRole{{
-		ID: entitlement.Resource.Id.Resource},
+	roleId := entitlement.Resource.Id.Resource
+
+	// A member with any existing Policies is on the Domain Scoped Roles
+	// model; grant via an equivalent Policy instead of the legacy Roles
+	// list, which Cloudflare rejects once Policies are present.
+	if len(account.Result.Policies) > 0 {
+		group, err := r.rolePermissionGroup(ctx, roleId)
+		if err != nil {
+			return nil, err
+		}
+
+		newPolicy := cloudflare.Policy{
+			PermissionGroups: []cloudflare.PermissionGroup{{ID: group.ID}},
+			ResourceGroups:   []cloudflare.ResourceGroup{cloudflare.NewResourceGroupForAccount(cloudflare.Account{ID: r.accountId})},
+			Access:           "allow",
+		}
+
+		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+			Policies: append(account.Result.Policies, newPolicy),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		l.Warn("Role has been created.",
+			zap.String("ID", member.ID),
+			zap.String("Status", member.Status),
+		)
+
+		return nil, nil
 	}
+
+	roles := []cloudflare.AccountRole{{ID: roleId}}
 	for _, role := range account.Result.Roles {
 		roles = append(roles, cloudflare.AccountRole{
 			ID: role.ID,
@@ -238,6 +291,51 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
 	if err != nil {
 		return nil, err
+	}
+
+	// See Grant: a member with any existing Policies is on the Domain
+	// Scoped Roles model, so revoke by removing the equivalent Policy
+	// instead of filtering the legacy Roles list.
+	if len(account.Result.Policies) > 0 {
+		group, err := r.rolePermissionGroup(ctx, roleId)
+		if err != nil {
+			return nil, err
+		}
+
+		// Strip only the matching permission group from each policy - a
+		// policy can bundle multiple permission groups together, and
+		// dropping the whole policy would revoke unrelated grants it also
+		// carries. Only drop a policy if removing the group leaves it with
+		// no permission groups at all.
+		policies := make([]cloudflare.Policy, 0, len(account.Result.Policies))
+		for _, policy := range account.Result.Policies {
+			remaining := make([]cloudflare.PermissionGroup, 0, len(policy.PermissionGroups))
+			for _, pg := range policy.PermissionGroups {
+				if pg.ID == group.ID {
+					continue
+				}
+				remaining = append(remaining, pg)
+			}
+			if len(remaining) == 0 {
+				continue
+			}
+			policy.PermissionGroups = remaining
+			policies = append(policies, policy)
+		}
+
+		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+			Policies: policies,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		l.Warn("Role has been revoked.",
+			zap.String("ID", member.ID),
+			zap.String("Status", member.Status),
+		)
+
+		return nil, nil
 	}
 
 	roles := []cloudflare.AccountRole{}
