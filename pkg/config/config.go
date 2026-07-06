@@ -14,17 +14,20 @@ var (
 		field.WithDisplayName("API Key"),
 		field.WithDescription("Cloudflare API key"),
 		field.WithIsSecret(true),
+		field.WithRequired(true),
 	)
 	apiTokenField = field.StringField(
 		"api-token",
 		field.WithDisplayName("API Token"),
 		field.WithDescription("Cloudflare API token"),
 		field.WithIsSecret(true),
+		field.WithRequired(true),
 	)
 	emailField = field.StringField(
 		"email",
 		field.WithDisplayName("Email"),
 		field.WithDescription("Cloudflare account email"),
+		field.WithRequired(true),
 	)
 	baseURLField = field.StringField(
 		"base-url",
@@ -39,14 +42,6 @@ var (
 		emailField,
 		baseURLField,
 	}
-	fieldRelationships = []field.SchemaFieldRelationship{
-		field.FieldsAtLeastOneUsed(apiTokenField, apiKeyField),
-		field.FieldsMutuallyExclusive(apiTokenField, apiKeyField),
-		field.FieldsDependentOn(
-			[]field.SchemaField{apiKeyField},
-			[]field.SchemaField{emailField},
-		),
-	}
 )
 
 //go:generate go run ./gen
@@ -55,7 +50,6 @@ var Config = field.NewConfiguration(
 	field.WithConnectorDisplayName("Cloudflare Zero Trust"),
 	field.WithHelpUrl("/docs/baton/cloudflare-zero-trust"),
 	field.WithIconUrl("/static/app-icons/cloudflare-zero-trust.svg"),
-	field.WithConstraints(fieldRelationships...),
 	field.WithFieldGroups([]field.SchemaFieldGroup{
 		{
 			Name:        "api-token-group",
