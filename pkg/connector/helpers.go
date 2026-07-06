@@ -32,6 +32,20 @@ func capabilityPermissions(perms ...string) *v2.CapabilityPermissions {
 	return cp
 }
 
+// annotationsForRoleResourceType tells the SDK to skip the per-resource
+// entitlements sync phase for roles. Role entitlements are declared once via
+// roleBuilder.StaticEntitlements instead. Grants are still synced.
+func annotationsForRoleResourceType() annotations.Annotations {
+	annos := annotations.Annotations{}
+	annos.Update(&v2.SkipEntitlements{})
+	annos.Update(capabilityPermissions(
+		"Account Settings Read",
+		"Memberships Read",
+		"Memberships Write",
+	))
+	return annos
+}
+
 func getAccessIncludeEmails(include []interface{}) []string {
 	var emailArr []string
 	for _, includeRule := range include {
