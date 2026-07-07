@@ -33,6 +33,15 @@ func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
 		"group_name": group.Name,
 		"group_id":   group.ID,
 	}
+	if len(group.Include) > 0 {
+		profile["include_rules"] = describeAccessRules(group.Include)
+	}
+	if len(group.Require) > 0 {
+		profile["require_rules"] = describeAccessRules(group.Require)
+	}
+	if len(group.Exclude) > 0 {
+		profile["exclude_rules"] = describeAccessRules(group.Exclude)
+	}
 
 	ret, err := rs.NewGroupResource(
 		group.Name,

@@ -162,3 +162,38 @@ func TestSatisfiesRequireExclude_NestedGroupExclude(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, satisfied)
 }
+
+func TestDescribeAccessRule(t *testing.T) {
+	tests := []struct {
+		name string
+		rule interface{}
+		want string
+	}{
+		{"email", emailRule("a@x.com"), "email:a@x.com"},
+		{"email_domain", emailDomainRule("x.com"), "email_domain:x.com"},
+		{"everyone", everyoneRule(), "everyone"},
+		{"group", groupRule("eng"), "group:eng"},
+		{"ip", map[string]interface{}{"ip": map[string]interface{}{"ip": "10.0.0.0/8"}}, "ip:10.0.0.0/8"},
+		{"ip_list", map[string]interface{}{"ip_list": map[string]interface{}{"id": "list1"}}, "ip_list:list1"},
+		{"geo", map[string]interface{}{"geo": map[string]interface{}{"country_code": "US"}}, "geo:US"},
+		{"certificate", map[string]interface{}{"certificate": map[string]interface{}{}}, "certificate"},
+		{"unrecognized type still named", map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}}, "okta"},
+		{"not a map", "garbage", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, describeAccessRule(tt.rule))
+		})
+	}
+}
+
+func TestDescribeAccessRules(t *testing.T) {
+	described := describeAccessRules([]interface{}{
+		emailRule("a@x.com"),
+		everyoneRule(),
+		groupRule("eng"),
+	})
+
+	require.Equal(t, []interface{}{"email:a@x.com", "everyone", "group:eng"}, described)
+}
