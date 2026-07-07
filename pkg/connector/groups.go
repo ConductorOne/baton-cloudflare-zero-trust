@@ -74,7 +74,10 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	var rv []*v2.Entitlement
 	options := []ent.EntitlementOption{
-		ent.WithGrantableTo(userResourceType),
+		// groupResourceType is grantable too: a group nested via an
+		// Include "group" rule is granted this entitlement itself,
+		// annotated GrantExpandable, rather than flattened to its members.
+		ent.WithGrantableTo(userResourceType, groupResourceType),
 		ent.WithDisplayName(fmt.Sprintf("%s Group %s", resource.DisplayName, memberRole)),
 		ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare group", memberRole, resource.DisplayName)),
 	}
@@ -120,19 +123,51 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		users = append(users, accUser)
 	}
 
+	directIncludeRules, nestedGroupIDs := splitIncludeRules(group.Include)
 	groupCache := map[string]*cloudflare.AccessGroup{group.ID: &group}
+
 	for _, user := range users {
 		userCopy := user
-		matches, err := groupIncludesUser(ctx, g.client, g.accountId, &group, userCopy, groupCache, map[string]bool{})
+
+		included, err := anyRuleMatches(ctx, g.client, g.accountId, directIncludeRules, userCopy, groupCache, map[string]bool{})
 		if err != nil {
-			return nil, nil, wrapError(err, "failed to evaluate group membership")
+			return nil, nil, wrapError(err, "failed to evaluate group include rules")
 		}
-		if matches {
-			ur, err := newUserResource(userCopy)
-			if err != nil {
-				return nil, nil, wrapError(err, "failed to create user resource")
-			}
-			gr := grant.NewGrant(resource, memberRole, ur.Id)
+		if !included {
+			continue
+		}
+
+		satisfied, err := satisfiesRequireExclude(ctx, g.client, g.accountId, &group, userCopy, groupCache)
+		if err != nil {
+			return nil, nil, wrapError(err, "failed to evaluate group require/exclude rules")
+		}
+		if !satisfied {
+			continue
+		}
+
+		ur, err := newUserResource(userCopy)
+		if err != nil {
+			return nil, nil, wrapError(err, "failed to create user resource")
+		}
+		gr := grant.NewGrant(resource, memberRole, ur.Id)
+		rv = append(rv, gr)
+	}
+
+	// Nested-group Include rules are represented as expandable grants
+	// against the nested group's own member entitlement, not flattened to
+	// individual users. Emit them only once, on the first page, since the
+	// grant is deterministic and independent of member pagination.
+	if page == 0 {
+		for _, nestedGroupID := range nestedGroupIDs {
+			nestedGroupResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id, Resource: nestedGroupID}}
+			nestedEntitlementID := ent.NewEntitlementID(nestedGroupResource, memberRole)
+
+			gr := grant.NewGrant(
+				resource,
+				memberRole,
+				nestedGroupResource.Id,
+				grant.WithAnnotation(&v2.GrantExpandable{EntitlementIds: []string{nestedEntitlementID}}),
+			)
 			rv = append(rv, gr)
 		}
 	}

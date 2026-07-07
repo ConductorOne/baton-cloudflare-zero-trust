@@ -104,3 +104,61 @@ func TestGroupIncludesUser_CycleGuard(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, matches, "a group cycle must not match and must not infinite loop")
 }
+
+func TestSplitIncludeRules(t *testing.T) {
+	direct, nestedGroupIDs := splitIncludeRules([]interface{}{
+		emailRule("a@x.com"),
+		groupRule("engineering"),
+		everyoneRule(),
+		groupRule("engineering"), // duplicate reference should be deduped
+		groupRule("sales"),
+	})
+
+	require.Len(t, direct, 2, "email and everyone rules are direct, group rules are not")
+	require.Equal(t, []string{"engineering", "sales"}, nestedGroupIDs)
+}
+
+func TestSatisfiesRequireExclude_NoRules(t *testing.T) {
+	grp := &cloudflare.AccessGroup{ID: "g1"}
+
+	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("a@x.com"), map[string]*cloudflare.AccessGroup{})
+	require.NoError(t, err)
+	require.True(t, satisfied, "a user with no require/exclude rules is satisfied by default")
+}
+
+func TestSatisfiesRequireExclude_RequireAndExclude(t *testing.T) {
+	grp := &cloudflare.AccessGroup{
+		ID:      "g1",
+		Require: []interface{}{emailDomainRule("x.com")},
+		Exclude: []interface{}{emailRule("blocked@x.com")},
+	}
+
+	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("a@x.com"), map[string]*cloudflare.AccessGroup{})
+	require.NoError(t, err)
+	require.True(t, satisfied)
+
+	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("a@y.com"), map[string]*cloudflare.AccessGroup{})
+	require.NoError(t, err)
+	require.False(t, satisfied, "require rule not satisfied for a different domain")
+
+	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("blocked@x.com"), map[string]*cloudflare.AccessGroup{})
+	require.NoError(t, err)
+	require.False(t, satisfied, "excluded user is not satisfied even though require is met")
+}
+
+func TestSatisfiesRequireExclude_NestedGroupExclude(t *testing.T) {
+	banned := &cloudflare.AccessGroup{ID: "banned", Include: []interface{}{emailRule("bad@x.com")}}
+	grp := &cloudflare.AccessGroup{
+		ID:      "g1",
+		Exclude: []interface{}{groupRule("banned")},
+	}
+	cache := map[string]*cloudflare.AccessGroup{"banned": banned}
+
+	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("bad@x.com"), cache)
+	require.NoError(t, err)
+	require.False(t, satisfied, "a user excluded via nested group membership must not be satisfied")
+
+	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("ok@x.com"), cache)
+	require.NoError(t, err)
+	require.True(t, satisfied)
+}
