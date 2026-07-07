@@ -120,10 +120,14 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		users = append(users, accUser)
 	}
 
-	groupGrants := getAccessIncludeEmails(group.Include)
+	groupCache := map[string]*cloudflare.AccessGroup{group.ID: &group}
 	for _, user := range users {
 		userCopy := user
-		if groupGrants != nil && groupContainsUser(user.Email, groupGrants) {
+		matches, err := groupIncludesUser(ctx, g.client, g.accountId, &group, userCopy, groupCache, map[string]bool{})
+		if err != nil {
+			return nil, nil, wrapError(err, "failed to evaluate group membership")
+		}
+		if matches {
 			ur, err := newUserResource(userCopy)
 			if err != nil {
 				return nil, nil, wrapError(err, "failed to create user resource")
