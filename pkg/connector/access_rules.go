@@ -131,6 +131,67 @@ func ruleMatchesUser(
 	return false, nil
 }
 
+// splitIncludeRules separates a group's Include rules into direct,
+// user-identifying rules ("email", "email_domain", "everyone") and the IDs
+// of any nested groups referenced via a "group" rule.
+//
+// Nested-group Include rules are intentionally NOT flattened into per-user
+// grants here: the caller emits a single GrantExpandable grant per
+// referenced group instead, so C1's graph expansion resolves that group's
+// membership (including any further nesting) without the connector
+// re-walking every account member on every sync.
+func splitIncludeRules(rules []interface{}) (direct []interface{}, nestedGroupIDs []string) {
+	seen := map[string]bool{}
+	for _, rule := range rules {
+		rm, ok := rule.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if grpRule, ok := rm["group"].(map[string]interface{}); ok {
+			id, _ := grpRule["id"].(string)
+			if id != "" && !seen[id] {
+				seen[id] = true
+				nestedGroupIDs = append(nestedGroupIDs, id)
+			}
+			continue
+		}
+		direct = append(direct, rule)
+	}
+	return direct, nestedGroupIDs
+}
+
+// satisfiesRequireExclude checks a group's Require (AND) and Exclude (NOT)
+// rules against a user that has already matched one of the group's direct
+// Include rules. Require/Exclude rules referencing a nested group are
+// evaluated recursively as a per-user membership check (not flattened),
+// since they gate a single already-identified user rather than enumerate an
+// entire nested group's roster.
+func satisfiesRequireExclude(
+	ctx context.Context,
+	client *cloudflare.API,
+	accountId string,
+	grp *cloudflare.AccessGroup,
+	user cloudflare.AccessUser,
+	cache map[string]*cloudflare.AccessGroup,
+) (bool, error) {
+	for _, rule := range grp.Require {
+		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, cache, map[string]bool{})
+		if err != nil {
+			return false, err
+		}
+		if !matches {
+			return false, nil
+		}
+	}
+
+	excluded, err := anyRuleMatches(ctx, client, accountId, grp.Exclude, user, cache, map[string]bool{})
+	if err != nil {
+		return false, err
+	}
+
+	return !excluded, nil
+}
+
 func getAccessGroupCached(
 	ctx context.Context,
 	client *cloudflare.API,
