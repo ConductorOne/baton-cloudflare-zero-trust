@@ -76,7 +76,9 @@ func anyRuleMatches(rules []interface{}, user cloudflare.AccessUser) bool {
 // referenced group instead, so C1's graph expansion resolves that group's
 // membership (including any further nesting) without the connector
 // re-walking every account member on every sync.
-func splitIncludeRules(rules []interface{}) (direct []interface{}, nestedGroupIDs []string) {
+func splitIncludeRules(rules []interface{}) ([]interface{}, []string) {
+	var direct []interface{}
+	var nestedGroupIDs []string
 	seen := map[string]bool{}
 	for _, rule := range rules {
 		rm, ok := rule.(map[string]interface{})
