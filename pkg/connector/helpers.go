@@ -32,35 +32,6 @@ func capabilityPermissions(perms ...string) *v2.CapabilityPermissions {
 	return cp
 }
 
-func getAccessIncludeEmails(include []interface{}) []string {
-	var emailArr []string
-	for _, includeRule := range include {
-		im, ok := includeRule.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		em, ok := im["email"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		email, ok := em["email"].(string)
-		if !ok {
-			continue
-		}
-		emailArr = append(emailArr, email)
-	}
-	return emailArr
-}
-
-func groupContainsUser(target string, emails []string) bool {
-	for _, email := range emails {
-		if target == email {
-			return true
-		}
-	}
-	return false
-}
-
 func getValueFromUserTrait(resource *v2.Resource, profileField string) (string, error) {
 	trait, err := rs.GetUserTrait(resource)
 	if err != nil {

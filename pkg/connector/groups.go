@@ -32,6 +32,15 @@ func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
 		"group_name": group.Name,
 		"group_id":   group.ID,
 	}
+	if len(group.Include) > 0 {
+		profile["include_rules"] = describeAccessRules(group.Include)
+	}
+	if len(group.Require) > 0 {
+		profile["require_rules"] = describeAccessRules(group.Require)
+	}
+	if len(group.Exclude) > 0 {
+		profile["exclude_rules"] = describeAccessRules(group.Exclude)
+	}
 
 	groupTraitOptions := []rs.GroupTraitOption{
 		rs.WithGroupProfile(profile),
@@ -71,35 +80,42 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 	return resources, nil, nil
 }
 
-func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
-	var rv []*v2.Entitlement
+// Entitlements is unused; StaticEntitlements defines the membership entitlement for all groups.
+func (g *groupBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
+}
+
+// StaticEntitlements returns the "member" assignment entitlement template once for all groups.
+// The SDK expands this into a per-group entitlement for every group resource.
+func (g *groupBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	tmplResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id}}
+
 	options := []ent.EntitlementOption{
 		ent.WithGrantableTo(userResourceType),
-		ent.WithDisplayName(fmt.Sprintf("%s Group %s", resource.DisplayName, memberRole)),
-		ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare group", memberRole, resource.DisplayName)),
+		ent.WithDisplayName(fmt.Sprintf("Group %s", memberRole)),
+		ent.WithDescription(fmt.Sprintf("%s of Cloudflare group", memberRole)),
 	}
 
-	rv = append(rv, ent.NewAssignmentEntitlement(resource, memberRole, options...))
-
-	return rv, nil, nil
+	return []*v2.Entitlement{ent.NewAssignmentEntitlement(tmplResource, memberRole, options...)}, nil, nil
 }
 
 func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var (
 		users []cloudflare.AccessUser
 		rv    []*v2.Grant
+		info  cloudflare.ResultInfo
 	)
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), resource.Id.Resource)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to get access group")
 	}
 
-	_, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
+	bag, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	memberUsers, _, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
+	memberUsers, info, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
 	})
@@ -119,19 +135,77 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		users = append(users, accUser)
 	}
 
-	groupGrants := getAccessIncludeEmails(group.Include)
+	directIncludeRules, nestedGroupIDs := splitIncludeRules(group.Include)
+
+	// A "group" rule in Require/Exclude is not evaluated by this connector
+	// (see the package doc comment in access_rules_helper.go); Exclude is
+	// the risky direction, since it means a member who should be excluded
+	// via nested-group membership may still receive this grant. Logged once
+	// per group, on the first page, rather than on every page of members.
+	// Debug, not Warn: this recurs every sync for as long as the customer's
+	// Cloudflare configuration combines Require/Exclude with a nested-group
+	// reference, so it isn't the truly exceptional, non-recurrent condition
+	// Warn is reserved for.
+	if page == 0 {
+		if containsUnsupportedGroupRule(group.Exclude) {
+			ctxzap.Extract(ctx).Debug(
+				"baton-cloudflare-zero-trust: group Exclude rule references a nested group, which this connector does not evaluate — excluded members may still be granted",
+				zap.String("group_id", group.ID),
+			)
+		}
+		if containsUnsupportedGroupRule(group.Require) {
+			ctxzap.Extract(ctx).Debug(
+				"baton-cloudflare-zero-trust: group Require rule references a nested group, which this connector does not evaluate — no member will satisfy it",
+				zap.String("group_id", group.ID),
+			)
+		}
+	}
+
 	for _, user := range users {
-		userCopy := user
-		if groupGrants != nil && groupContainsUser(user.Email, groupGrants) {
-			ur, err := newUserResource(userCopy)
-			if err != nil {
-				return nil, nil, wrapError(err, "failed to create user resource")
-			}
-			gr := grant.NewGrant(resource, memberRole, ur.Id)
+		if !anyRuleMatches(directIncludeRules, user) {
+			continue
+		}
+		if !satisfiesRequireExclude(&group, user) {
+			continue
+		}
+
+		ur, err := newUserResource(user)
+		if err != nil {
+			return nil, nil, wrapError(err, "failed to create user resource")
+		}
+		gr := grant.NewGrant(resource, memberRole, ur.Id)
+		rv = append(rv, gr)
+	}
+
+	// Nested-group Include rules are represented as expandable grants
+	// against the nested group's own member entitlement, not flattened to
+	// individual users. Emit them only once, on the first page, since the
+	// grant is deterministic and independent of member pagination.
+	if page == 0 {
+		for _, nestedGroupID := range nestedGroupIDs {
+			nestedGroupResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id, Resource: nestedGroupID}}
+			nestedEntitlementID := ent.NewEntitlementID(nestedGroupResource, memberRole)
+
+			gr := grant.NewGrant(
+				resource,
+				memberRole,
+				nestedGroupResource.Id,
+				grant.WithAnnotation(&v2.GrantExpandable{EntitlementIds: []string{nestedEntitlementID}}),
+			)
 			rv = append(rv, gr)
 		}
 	}
-	return rv, nil, nil
+
+	if info.TotalPages <= info.Page {
+		return rv, nil, nil
+	}
+
+	nextPage, err := getPageTokenFromPage(bag, page+1)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
 }
 
 func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
