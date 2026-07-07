@@ -88,18 +88,19 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	var (
 		users []cloudflare.AccessUser
 		rv    []*v2.Grant
+		info  cloudflare.ResultInfo
 	)
 	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), resource.Id.Resource)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to get access group")
 	}
 
-	_, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
+	bag, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	memberUsers, _, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
+	memberUsers, info, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
 	})
@@ -131,7 +132,17 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 			rv = append(rv, gr)
 		}
 	}
-	return rv, nil, nil
+
+	if info.TotalPages <= info.Page {
+		return rv, nil, nil
+	}
+
+	nextPage, err := getPageTokenFromPage(bag, page+1)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
 }
 
 func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
