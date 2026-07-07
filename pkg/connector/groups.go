@@ -71,20 +71,23 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 	return resources, nil, nil
 }
 
-func (g *groupBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
-	var rv []*v2.Entitlement
+// Entitlements is unused; StaticEntitlements defines the membership entitlement for all groups.
+func (g *groupBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
+}
+
+// StaticEntitlements returns the "member" assignment entitlement template once for all groups.
+// The SDK expands this into a per-group entitlement for every group resource.
+func (g *groupBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	tmplResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id}}
+
 	options := []ent.EntitlementOption{
-		// groupResourceType is grantable too: a group nested via an
-		// Include "group" rule is granted this entitlement itself,
-		// annotated GrantExpandable, rather than flattened to its members.
-		ent.WithGrantableTo(userResourceType, groupResourceType),
-		ent.WithDisplayName(fmt.Sprintf("%s Group %s", resource.DisplayName, memberRole)),
-		ent.WithDescription(fmt.Sprintf("%s of %s Cloudflare group", memberRole, resource.DisplayName)),
+		ent.WithGrantableTo(userResourceType),
+		ent.WithDisplayName(fmt.Sprintf("Group %s", memberRole)),
+		ent.WithDescription(fmt.Sprintf("%s of Cloudflare group", memberRole)),
 	}
 
-	rv = append(rv, ent.NewAssignmentEntitlement(resource, memberRole, options...))
-
-	return rv, nil, nil
+	return []*v2.Entitlement{ent.NewAssignmentEntitlement(tmplResource, memberRole, options...)}, nil, nil
 }
 
 func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
