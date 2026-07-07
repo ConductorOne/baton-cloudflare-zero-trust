@@ -210,6 +210,77 @@ func getAccessGroupCached(
 	return &grp, nil
 }
 
+// describeAccessRules renders a group's Include/Require/Exclude rules as
+// short human-readable strings for the group's resource profile, so
+// customers can see how a group is configured without pulling the raw
+// Cloudflare API response. Returned as []interface{} since that's the list
+// type structpb.NewStruct accepts for a profile field.
+func describeAccessRules(rules []interface{}) []interface{} {
+	described := make([]interface{}, 0, len(rules))
+	for _, rule := range rules {
+		described = append(described, describeAccessRule(rule))
+	}
+	return described
+}
+
+// describeAccessRule renders a single rule as "type:value" (or just "type"
+// when it has no value, e.g. "everyone"). Rule types this connector doesn't
+// evaluate for membership (ip, certificate, IdP-group claims, etc.) are
+// still named so operators can see the rule exists, even though it has no
+// effect on the grants this connector emits.
+func describeAccessRule(rule interface{}) string {
+	rm, ok := rule.(map[string]interface{})
+	if !ok || len(rm) == 0 {
+		return "unknown"
+	}
+
+	switch {
+	case rm["everyone"] != nil:
+		return "everyone"
+	case rm["certificate"] != nil:
+		return "certificate"
+	case rm["any_valid_service_token"] != nil:
+		return "any_valid_service_token"
+	}
+
+	if em, ok := rm["email"].(map[string]interface{}); ok {
+		email, _ := em["email"].(string)
+		return "email:" + email
+	}
+	if ed, ok := rm["email_domain"].(map[string]interface{}); ok {
+		domain, _ := ed["domain"].(string)
+		return "email_domain:" + domain
+	}
+	if grpRule, ok := rm["group"].(map[string]interface{}); ok {
+		id, _ := grpRule["id"].(string)
+		return "group:" + id
+	}
+	if ipRule, ok := rm["ip"].(map[string]interface{}); ok {
+		ip, _ := ipRule["ip"].(string)
+		return "ip:" + ip
+	}
+	if ipListRule, ok := rm["ip_list"].(map[string]interface{}); ok {
+		id, _ := ipListRule["id"].(string)
+		return "ip_list:" + id
+	}
+	if geoRule, ok := rm["geo"].(map[string]interface{}); ok {
+		code, _ := geoRule["country_code"].(string)
+		return "geo:" + code
+	}
+	if tokenRule, ok := rm["service_token"].(map[string]interface{}); ok {
+		id, _ := tokenRule["token_id"].(string)
+		return "service_token:" + id
+	}
+
+	// Unrecognized rule type: fall back to its JSON key so the rule's
+	// presence is still visible even though this connector can't describe
+	// its value.
+	for key := range rm {
+		return key
+	}
+	return "unknown"
+}
+
 func emailDomain(email string) string {
 	idx := strings.LastIndex(email, "@")
 	if idx < 0 {
