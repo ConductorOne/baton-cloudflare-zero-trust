@@ -84,13 +84,13 @@ func TestGroupIncludesUser_NestedGroup(t *testing.T) {
 		ID:      "top",
 		Include: []interface{}{groupRule("leaf")},
 	}
-	cache := map[string]*cloudflare.AccessGroup{"leaf": leaf}
+	groups := map[string]*cloudflare.AccessGroup{"leaf": leaf}
 
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", top, user("nested@x.com"), cache, map[string]bool{})
+	matches, err := groupIncludesUser(context.Background(), nil, "acct", top, user("nested@x.com"), groups, map[string]bool{})
 	require.NoError(t, err)
 	require.True(t, matches)
 
-	matches, err = groupIncludesUser(context.Background(), nil, "acct", top, user("other@x.com"), cache, map[string]bool{})
+	matches, err = groupIncludesUser(context.Background(), nil, "acct", top, user("other@x.com"), groups, map[string]bool{})
 	require.NoError(t, err)
 	require.False(t, matches)
 }
@@ -98,9 +98,9 @@ func TestGroupIncludesUser_NestedGroup(t *testing.T) {
 func TestGroupIncludesUser_CycleGuard(t *testing.T) {
 	groupA := &cloudflare.AccessGroup{ID: "a", Include: []interface{}{groupRule("b")}}
 	groupB := &cloudflare.AccessGroup{ID: "b", Include: []interface{}{groupRule("a")}}
-	cache := map[string]*cloudflare.AccessGroup{"a": groupA, "b": groupB}
+	groups := map[string]*cloudflare.AccessGroup{"a": groupA, "b": groupB}
 
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", groupA, user("a@x.com"), cache, map[string]bool{})
+	matches, err := groupIncludesUser(context.Background(), nil, "acct", groupA, user("a@x.com"), groups, map[string]bool{})
 	require.NoError(t, err)
 	require.False(t, matches, "a group cycle must not match and must not infinite loop")
 }
@@ -152,13 +152,13 @@ func TestSatisfiesRequireExclude_NestedGroupExclude(t *testing.T) {
 		ID:      "g1",
 		Exclude: []interface{}{groupRule("banned")},
 	}
-	cache := map[string]*cloudflare.AccessGroup{"banned": banned}
+	groups := map[string]*cloudflare.AccessGroup{"banned": banned}
 
-	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("bad@x.com"), cache)
+	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("bad@x.com"), groups)
 	require.NoError(t, err)
 	require.False(t, satisfied, "a user excluded via nested group membership must not be satisfied")
 
-	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("ok@x.com"), cache)
+	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("ok@x.com"), groups)
 	require.NoError(t, err)
 	require.True(t, satisfied)
 }

@@ -14,16 +14,25 @@ import (
 //   - Exclude is NOT: no rule may match.
 //
 // "group" rules reference another Access Group by ID and are evaluated
-// recursively with the same combinator semantics. cache avoids re-fetching a
-// nested group already seen during this evaluation; visiting guards against
-// reference cycles between groups (A includes B, B includes A).
+// recursively with the same combinator semantics. This is only reached for
+// Require/Exclude "group" rules, which gate a single already-identified
+// user and so must be evaluated (there's no principal to point a
+// GrantExpandable grant at); Include's "group" rules never reach this path
+// at all — those are resolved as expandable grants in groups.go without
+// fetching or evaluating the nested group's membership.
+//
+// groups holds each nested group's definition once it's been fetched, so a
+// group referenced from multiple rules or evaluated for multiple users
+// during the same Grants() call is fetched from Cloudflare only once.
+// visiting guards against reference cycles between groups (A includes B, B
+// includes A) during a single evaluation.
 func groupIncludesUser(
 	ctx context.Context,
 	client *cloudflare.API,
 	accountId string,
 	grp *cloudflare.AccessGroup,
 	user cloudflare.AccessUser,
-	cache map[string]*cloudflare.AccessGroup,
+	groups map[string]*cloudflare.AccessGroup,
 	visiting map[string]bool,
 ) (bool, error) {
 	if visiting[grp.ID] {
@@ -32,7 +41,7 @@ func groupIncludesUser(
 	visiting[grp.ID] = true
 	defer delete(visiting, grp.ID)
 
-	included, err := anyRuleMatches(ctx, client, accountId, grp.Include, user, cache, visiting)
+	included, err := anyRuleMatches(ctx, client, accountId, grp.Include, user, groups, visiting)
 	if err != nil {
 		return false, err
 	}
@@ -41,7 +50,7 @@ func groupIncludesUser(
 	}
 
 	for _, rule := range grp.Require {
-		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, cache, visiting)
+		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, groups, visiting)
 		if err != nil {
 			return false, err
 		}
@@ -50,7 +59,7 @@ func groupIncludesUser(
 		}
 	}
 
-	excluded, err := anyRuleMatches(ctx, client, accountId, grp.Exclude, user, cache, visiting)
+	excluded, err := anyRuleMatches(ctx, client, accountId, grp.Exclude, user, groups, visiting)
 	if err != nil {
 		return false, err
 	}
@@ -67,11 +76,11 @@ func anyRuleMatches(
 	accountId string,
 	rules []interface{},
 	user cloudflare.AccessUser,
-	cache map[string]*cloudflare.AccessGroup,
+	groups map[string]*cloudflare.AccessGroup,
 	visiting map[string]bool,
 ) (bool, error) {
 	for _, rule := range rules {
-		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, cache, visiting)
+		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, groups, visiting)
 		if err != nil {
 			return false, err
 		}
@@ -94,7 +103,7 @@ func ruleMatchesUser(
 	accountId string,
 	rule interface{},
 	user cloudflare.AccessUser,
-	cache map[string]*cloudflare.AccessGroup,
+	groups map[string]*cloudflare.AccessGroup,
 	visiting map[string]bool,
 ) (bool, error) {
 	rm, ok := rule.(map[string]interface{})
@@ -121,11 +130,11 @@ func ruleMatchesUser(
 		if groupId == "" {
 			return false, nil
 		}
-		nested, err := getAccessGroupCached(ctx, client, accountId, groupId, cache)
+		nested, err := resolveGroup(ctx, client, accountId, groupId, groups)
 		if err != nil {
 			return false, err
 		}
-		return groupIncludesUser(ctx, client, accountId, nested, user, cache, visiting)
+		return groupIncludesUser(ctx, client, accountId, nested, user, groups, visiting)
 	}
 
 	return false, nil
@@ -172,10 +181,10 @@ func satisfiesRequireExclude(
 	accountId string,
 	grp *cloudflare.AccessGroup,
 	user cloudflare.AccessUser,
-	cache map[string]*cloudflare.AccessGroup,
+	groups map[string]*cloudflare.AccessGroup,
 ) (bool, error) {
 	for _, rule := range grp.Require {
-		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, cache, map[string]bool{})
+		matches, err := ruleMatchesUser(ctx, client, accountId, rule, user, groups, map[string]bool{})
 		if err != nil {
 			return false, err
 		}
@@ -184,7 +193,7 @@ func satisfiesRequireExclude(
 		}
 	}
 
-	excluded, err := anyRuleMatches(ctx, client, accountId, grp.Exclude, user, cache, map[string]bool{})
+	excluded, err := anyRuleMatches(ctx, client, accountId, grp.Exclude, user, groups, map[string]bool{})
 	if err != nil {
 		return false, err
 	}
@@ -192,21 +201,25 @@ func satisfiesRequireExclude(
 	return !excluded, nil
 }
 
-func getAccessGroupCached(
+// resolveGroup returns the definition for groupId, fetching it via the
+// Cloudflare API only the first time it's referenced; later calls for the
+// same groupId during this Grants() invocation return the group already
+// fetched and stored in groups.
+func resolveGroup(
 	ctx context.Context,
 	client *cloudflare.API,
 	accountId string,
 	groupId string,
-	cache map[string]*cloudflare.AccessGroup,
+	groups map[string]*cloudflare.AccessGroup,
 ) (*cloudflare.AccessGroup, error) {
-	if grp, ok := cache[groupId]; ok {
+	if grp, ok := groups[groupId]; ok {
 		return grp, nil
 	}
 	grp, err := client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(accountId), groupId)
 	if err != nil {
 		return nil, wrapError(err, "failed to get nested access group")
 	}
-	cache[groupId] = &grp
+	groups[groupId] = &grp
 	return &grp, nil
 }
 
