@@ -140,17 +140,21 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	// A "group" rule in Require/Exclude is not evaluated by this connector
 	// (see the package doc comment in access_rules_helper.go); Exclude is
 	// the risky direction, since it means a member who should be excluded
-	// via nested-group membership may still receive this grant. Warn once
+	// via nested-group membership may still receive this grant. Logged once
 	// per group, on the first page, rather than on every page of members.
+	// Debug, not Warn: this recurs every sync for as long as the customer's
+	// Cloudflare configuration combines Require/Exclude with a nested-group
+	// reference, so it isn't the truly exceptional, non-recurrent condition
+	// Warn is reserved for.
 	if page == 0 {
 		if containsUnsupportedGroupRule(group.Exclude) {
-			ctxzap.Extract(ctx).Warn(
+			ctxzap.Extract(ctx).Debug(
 				"baton-cloudflare-zero-trust: group Exclude rule references a nested group, which this connector does not evaluate — excluded members may still be granted",
 				zap.String("group_id", group.ID),
 			)
 		}
 		if containsUnsupportedGroupRule(group.Require) {
-			ctxzap.Extract(ctx).Warn(
+			ctxzap.Extract(ctx).Debug(
 				"baton-cloudflare-zero-trust: group Require rule references a nested group, which this connector does not evaluate — no member will satisfy it",
 				zap.String("group_id", group.ID),
 			)
