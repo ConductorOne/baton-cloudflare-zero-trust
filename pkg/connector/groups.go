@@ -136,32 +136,36 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	}
 
 	directIncludeRules, nestedGroupIDs := splitIncludeRules(group.Include)
-	// Require/Exclude "group" rules recurse into other groups (see
-	// satisfiesRequireExclude); resolvedGroups remembers each one fetched
-	// during this call so it's fetched from Cloudflare at most once,
-	// however many members or rules reference it.
-	resolvedGroups := map[string]*cloudflare.AccessGroup{group.ID: &group}
+
+	// A "group" rule in Require/Exclude is not evaluated by this connector
+	// (see the package doc comment in access_rules_helper.go); Exclude is
+	// the risky direction, since it means a member who should be excluded
+	// via nested-group membership may still receive this grant. Warn once
+	// per group, on the first page, rather than on every page of members.
+	if page == 0 {
+		if containsUnsupportedGroupRule(group.Exclude) {
+			ctxzap.Extract(ctx).Warn(
+				"baton-cloudflare-zero-trust: group Exclude rule references a nested group, which this connector does not evaluate — excluded members may still be granted",
+				zap.String("group_id", group.ID),
+			)
+		}
+		if containsUnsupportedGroupRule(group.Require) {
+			ctxzap.Extract(ctx).Warn(
+				"baton-cloudflare-zero-trust: group Require rule references a nested group, which this connector does not evaluate — no member will satisfy it",
+				zap.String("group_id", group.ID),
+			)
+		}
+	}
 
 	for _, user := range users {
-		userCopy := user
-
-		included, err := anyRuleMatches(ctx, g.client, g.accountId, directIncludeRules, userCopy, resolvedGroups, map[string]bool{})
-		if err != nil {
-			return nil, nil, wrapError(err, "failed to evaluate group include rules")
+		if !anyRuleMatches(directIncludeRules, user) {
+			continue
 		}
-		if !included {
+		if !satisfiesRequireExclude(&group, user) {
 			continue
 		}
 
-		satisfied, err := satisfiesRequireExclude(ctx, g.client, g.accountId, &group, userCopy, resolvedGroups)
-		if err != nil {
-			return nil, nil, wrapError(err, "failed to evaluate group require/exclude rules")
-		}
-		if !satisfied {
-			continue
-		}
-
-		ur, err := newUserResource(userCopy)
+		ur, err := newUserResource(user)
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to create user resource")
 		}

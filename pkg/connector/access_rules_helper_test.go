@@ -1,7 +1,6 @@
 package connector
 
 import (
-	"context"
 	"testing"
 
 	"github.com/cloudflare/cloudflare-go"
@@ -28,81 +27,18 @@ func user(email string) cloudflare.AccessUser {
 	return cloudflare.AccessUser{Email: email}
 }
 
-func TestGroupIncludesUser_Include(t *testing.T) {
-	grp := &cloudflare.AccessGroup{
-		ID:      "g1",
-		Include: []interface{}{emailRule("a@x.com")},
-	}
+func TestRuleMatchesUser(t *testing.T) {
+	require.True(t, ruleMatchesUser(emailRule("a@x.com"), user("a@x.com")))
+	require.False(t, ruleMatchesUser(emailRule("a@x.com"), user("b@x.com")))
+	require.True(t, ruleMatchesUser(emailDomainRule("x.com"), user("a@x.com")))
+	require.False(t, ruleMatchesUser(emailDomainRule("x.com"), user("a@y.com")))
+	require.True(t, ruleMatchesUser(everyoneRule(), user("anyone@x.com")))
 
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", grp, user("a@x.com"), map[string]*cloudflare.AccessGroup{}, map[string]bool{})
-	require.NoError(t, err)
-	require.True(t, matches)
-
-	matches, err = groupIncludesUser(context.Background(), nil, "acct", grp, user("b@x.com"), map[string]*cloudflare.AccessGroup{}, map[string]bool{})
-	require.NoError(t, err)
-	require.False(t, matches)
-}
-
-func TestGroupIncludesUser_Exclude(t *testing.T) {
-	grp := &cloudflare.AccessGroup{
-		ID:      "g1",
-		Include: []interface{}{everyoneRule()},
-		Exclude: []interface{}{emailRule("blocked@x.com")},
-	}
-
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", grp, user("blocked@x.com"), map[string]*cloudflare.AccessGroup{}, map[string]bool{})
-	require.NoError(t, err)
-	require.False(t, matches, "excluded user must not be granted even though everyone is included")
-
-	matches, err = groupIncludesUser(context.Background(), nil, "acct", grp, user("anyone@x.com"), map[string]*cloudflare.AccessGroup{}, map[string]bool{})
-	require.NoError(t, err)
-	require.True(t, matches)
-}
-
-func TestGroupIncludesUser_Require(t *testing.T) {
-	grp := &cloudflare.AccessGroup{
-		ID:      "g1",
-		Include: []interface{}{everyoneRule()},
-		Require: []interface{}{emailDomainRule("x.com")},
-	}
-
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", grp, user("a@x.com"), map[string]*cloudflare.AccessGroup{}, map[string]bool{})
-	require.NoError(t, err)
-	require.True(t, matches)
-
-	matches, err = groupIncludesUser(context.Background(), nil, "acct", grp, user("a@y.com"), map[string]*cloudflare.AccessGroup{}, map[string]bool{})
-	require.NoError(t, err)
-	require.False(t, matches, "require rule not satisfied for a different domain")
-}
-
-func TestGroupIncludesUser_NestedGroup(t *testing.T) {
-	leaf := &cloudflare.AccessGroup{
-		ID:      "leaf",
-		Include: []interface{}{emailRule("nested@x.com")},
-	}
-	top := &cloudflare.AccessGroup{
-		ID:      "top",
-		Include: []interface{}{groupRule("leaf")},
-	}
-	groups := map[string]*cloudflare.AccessGroup{"leaf": leaf}
-
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", top, user("nested@x.com"), groups, map[string]bool{})
-	require.NoError(t, err)
-	require.True(t, matches)
-
-	matches, err = groupIncludesUser(context.Background(), nil, "acct", top, user("other@x.com"), groups, map[string]bool{})
-	require.NoError(t, err)
-	require.False(t, matches)
-}
-
-func TestGroupIncludesUser_CycleGuard(t *testing.T) {
-	groupA := &cloudflare.AccessGroup{ID: "a", Include: []interface{}{groupRule("b")}}
-	groupB := &cloudflare.AccessGroup{ID: "b", Include: []interface{}{groupRule("a")}}
-	groups := map[string]*cloudflare.AccessGroup{"a": groupA, "b": groupB}
-
-	matches, err := groupIncludesUser(context.Background(), nil, "acct", groupA, user("a@x.com"), groups, map[string]bool{})
-	require.NoError(t, err)
-	require.False(t, matches, "a group cycle must not match and must not infinite loop")
+	// "group" rules are only evaluated for Include (as an expandable grant
+	// in groups.go, never through this function); ruleMatchesUser itself
+	// never matches one, which is what makes Require/Exclude "group" rules
+	// a documented no-op rather than a real membership check.
+	require.False(t, ruleMatchesUser(groupRule("eng"), user("a@x.com")))
 }
 
 func TestSplitIncludeRules(t *testing.T) {
@@ -121,9 +57,7 @@ func TestSplitIncludeRules(t *testing.T) {
 func TestSatisfiesRequireExclude_NoRules(t *testing.T) {
 	grp := &cloudflare.AccessGroup{ID: "g1"}
 
-	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("a@x.com"), map[string]*cloudflare.AccessGroup{})
-	require.NoError(t, err)
-	require.True(t, satisfied, "a user with no require/exclude rules is satisfied by default")
+	require.True(t, satisfiesRequireExclude(grp, user("a@x.com")), "a user with no require/exclude rules is satisfied by default")
 }
 
 func TestSatisfiesRequireExclude_RequireAndExclude(t *testing.T) {
@@ -133,34 +67,28 @@ func TestSatisfiesRequireExclude_RequireAndExclude(t *testing.T) {
 		Exclude: []interface{}{emailRule("blocked@x.com")},
 	}
 
-	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("a@x.com"), map[string]*cloudflare.AccessGroup{})
-	require.NoError(t, err)
-	require.True(t, satisfied)
-
-	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("a@y.com"), map[string]*cloudflare.AccessGroup{})
-	require.NoError(t, err)
-	require.False(t, satisfied, "require rule not satisfied for a different domain")
-
-	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("blocked@x.com"), map[string]*cloudflare.AccessGroup{})
-	require.NoError(t, err)
-	require.False(t, satisfied, "excluded user is not satisfied even though require is met")
+	require.True(t, satisfiesRequireExclude(grp, user("a@x.com")))
+	require.False(t, satisfiesRequireExclude(grp, user("a@y.com")), "require rule not satisfied for a different domain")
+	require.False(t, satisfiesRequireExclude(grp, user("blocked@x.com")), "excluded user is not satisfied even though require is met")
 }
 
-func TestSatisfiesRequireExclude_NestedGroupExclude(t *testing.T) {
-	banned := &cloudflare.AccessGroup{ID: "banned", Include: []interface{}{emailRule("bad@x.com")}}
-	grp := &cloudflare.AccessGroup{
-		ID:      "g1",
-		Exclude: []interface{}{groupRule("banned")},
-	}
-	groups := map[string]*cloudflare.AccessGroup{"banned": banned}
+// TestSatisfiesRequireExclude_GroupRuleIsNotEnforced documents the accepted
+// limitation: a "group" rule in Require or Exclude is never evaluated, so
+// neither gates a user who otherwise matches. See the package doc comment
+// in access_rules_helper.go and the "Access group rules" section of
+// docs/connector.mdx.
+func TestSatisfiesRequireExclude_GroupRuleIsNotEnforced(t *testing.T) {
+	requireGroup := &cloudflare.AccessGroup{ID: "g1", Require: []interface{}{groupRule("eng")}}
+	require.False(t, satisfiesRequireExclude(requireGroup, user("a@x.com")), "an unenforceable require rule fails closed: nobody satisfies it")
 
-	satisfied, err := satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("bad@x.com"), groups)
-	require.NoError(t, err)
-	require.False(t, satisfied, "a user excluded via nested group membership must not be satisfied")
+	excludeGroup := &cloudflare.AccessGroup{ID: "g2", Exclude: []interface{}{groupRule("banned")}}
+	require.True(t, satisfiesRequireExclude(excludeGroup, user("a@x.com")), "an unenforceable exclude rule is not applied: it never blocks a match")
+}
 
-	satisfied, err = satisfiesRequireExclude(context.Background(), nil, "acct", grp, user("ok@x.com"), groups)
-	require.NoError(t, err)
-	require.True(t, satisfied)
+func TestContainsUnsupportedGroupRule(t *testing.T) {
+	require.True(t, containsUnsupportedGroupRule([]interface{}{emailRule("a@x.com"), groupRule("eng")}))
+	require.False(t, containsUnsupportedGroupRule([]interface{}{emailRule("a@x.com"), everyoneRule()}))
+	require.False(t, containsUnsupportedGroupRule(nil))
 }
 
 func TestDescribeAccessRule(t *testing.T) {

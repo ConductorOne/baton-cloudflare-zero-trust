@@ -19,6 +19,58 @@ sidebarTitle: "Cloudflare Zero Trust"
 
 {/* AUTO-GENERATED:END - capabilities */}
 
+**Notes:**
+- Access group membership grants are derived from each group's Cloudflare
+  Access policy rules (`Include`/`Require`/`Exclude`). See [Access group
+  rules](#access-group-rules) below for exactly which rule types are
+  evaluated, and a known limitation around nested-group `Require`/`Exclude`
+  rules.
+
+## Access group rules
+
+Cloudflare Access groups grant membership using three rule lists with
+different logic:
+
+- **Include** — OR. A user matches the group if at least one rule matches.
+- **Require** — AND. A user must also match every rule in this list.
+- **Exclude** — NOT. A user must not match any rule in this list.
+
+Each list can contain several rule types (email, email domain, everyone,
+country, IP range, IdP group claim, a nested Access group, etc.). This
+connector evaluates a different subset of those types depending on which
+list they appear in:
+
+| List | Evaluated rule types |
+| :--- | :--- |
+| Include | `email`, `email_domain`, `everyone`, `group` (nested Access group) |
+| Require | `email`, `email_domain`, `everyone` |
+| Exclude | `email`, `email_domain`, `everyone` |
+
+A nested Access group referenced in **Include** is represented as an
+expandable grant on the referenced group's own membership — so nested
+group membership (including further nesting) is fully reflected in C1,
+without this connector re-evaluating every member on every sync.
+
+<Warning>
+**A nested Access group referenced in Require or Exclude is not
+evaluated.** Determining membership in the referenced group would require
+this connector to recursively re-run the same Include/Require/Exclude
+evaluation against it for every account member on every sync, which this
+connector does not do.
+
+- A `Require` rule that references a group always fails to match, so it
+  never grants access — no member will satisfy that group's membership
+  requirement through this connector.
+- An `Exclude` rule that references a group is **not enforced**: a member
+  who should be excluded because they belong to the referenced group may
+  still be reported as a member of the outer group.
+
+If your Cloudflare Access groups combine `Require` or `Exclude` with a
+nested group reference, review that group's membership directly in
+Cloudflare rather than relying on C1 for it. Any group affected by this is
+logged as a warning at sync time.
+</Warning>
+
 ## Gather Cloudflare Zero Trust credentials
 
 Configuring the connector requires you to pass in credentials generated in Cloudflare Zero Trust. Gather these credentials before you move on.
