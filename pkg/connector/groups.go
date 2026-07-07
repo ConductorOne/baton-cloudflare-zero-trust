@@ -136,12 +136,16 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	}
 
 	directIncludeRules, nestedGroupIDs := splitIncludeRules(group.Include)
-	groupCache := map[string]*cloudflare.AccessGroup{group.ID: &group}
+	// Require/Exclude "group" rules recurse into other groups (see
+	// satisfiesRequireExclude); resolvedGroups remembers each one fetched
+	// during this call so it's fetched from Cloudflare at most once,
+	// however many members or rules reference it.
+	resolvedGroups := map[string]*cloudflare.AccessGroup{group.ID: &group}
 
 	for _, user := range users {
 		userCopy := user
 
-		included, err := anyRuleMatches(ctx, g.client, g.accountId, directIncludeRules, userCopy, groupCache, map[string]bool{})
+		included, err := anyRuleMatches(ctx, g.client, g.accountId, directIncludeRules, userCopy, resolvedGroups, map[string]bool{})
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to evaluate group include rules")
 		}
@@ -149,7 +153,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 			continue
 		}
 
-		satisfied, err := satisfiesRequireExclude(ctx, g.client, g.accountId, &group, userCopy, groupCache)
+		satisfied, err := satisfiesRequireExclude(ctx, g.client, g.accountId, &group, userCopy, resolvedGroups)
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to evaluate group require/exclude rules")
 		}
