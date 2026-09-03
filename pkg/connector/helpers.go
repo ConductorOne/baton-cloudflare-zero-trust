@@ -12,7 +12,24 @@ import (
 func annotationsForUserResourceType() annotations.Annotations {
 	annos := annotations.Annotations{}
 	annos.Update(&v2.SkipEntitlementsAndGrants{})
+	annos.Update(capabilityPermissions(
+		"Account Settings Read",
+		"Access: Apps and Policies Read",
+		"Memberships Read",
+	))
 	return annos
+}
+
+// capabilityPermissions declares the Cloudflare API token permission groups
+// a resource type needs, surfaced in baton_capabilities.json so operators
+// can see what to grant before connecting. Names match Cloudflare's API
+// token permission group display names exactly.
+func capabilityPermissions(perms ...string) *v2.CapabilityPermissions {
+	cp := &v2.CapabilityPermissions{}
+	for _, p := range perms {
+		cp.Permissions = append(cp.Permissions, &v2.CapabilityPermission{Permission: p})
+	}
+	return cp
 }
 
 func getAccessIncludeEmails(include []interface{}) []string {

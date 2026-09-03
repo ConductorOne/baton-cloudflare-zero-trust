@@ -12,13 +12,8 @@ jobs:
         BATON_API_KEY: ${{ secrets.BATON_API_KEY }}
         BATON_EMAIL: ${{ secrets.BATON_EMAIL }}
         BATON_ACCOUNT_ID: ${{ secrets.BATON_ACCOUNT_ID }}
+        BATON_AUTH_METHOD: ${{ secrets.BATON_AUTH_METHOD }}
         BATON_LOG_LEVEL: 'debug'
-        # Revoke grants variable
-        CONNECTOR_GRANT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics:user:9d9a62a5b834a8c9c5cf43cd234dfd4a'
-        # Grant entitlements variables
-        CONNECTOR_ENTITLEMENT: 'role:6ddc5f80969d01105b5a0931e0079365:Analytics'
-        CONNECTOR_PRINCIPAL: '9d9a62a5b834a8c9c5cf43cd234dfd4a'
-        CONNECTOR_PRINCIPAL_TYPE: 'user'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,6 +27,6 @@ jobs:
         uses: ConductorOne/github-workflows/actions/sync-test@v2
         with:
           connector: ./baton-cloudflare-zero-trust
-          baton-entitlement: role:6ddc5f80969d01105b5a0931e0079365:Analytics
-          baton-principal: 9d9a62a5b834a8c9c5cf43cd234dfd4a
-          baton-principal-type: user
+          baton-entitlement: ${{ vars.ROLE_ENTITLEMENT }}
+          baton-principal: ${{ vars.USER_PRINCIPAL }}
+          baton-principal-type: ${{ vars.USER_PRINCIPAL_TYPE }}
