@@ -7,26 +7,47 @@
         "displayName": "Group",
         "traits": [
           "TRAIT_GROUP"
+        ],
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Account Settings Read"
+              },
+              {
+                "permission": "Access: Organizations, Identity Providers, and Groups Read"
+              },
+              {
+                "permission": "Access: Organizations, Identity Providers, and Groups Write"
+              },
+              {
+                "permission": "Memberships Read"
+              }
+            ]
+          }
         ]
       },
       "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ],
-      "permissions": {}
-    },
-    {
-      "resourceType": {
-        "id": "member",
-        "displayName": "Member",
-        "traits": [
-          "TRAIT_USER"
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Account Settings Read"
+          },
+          {
+            "permission": "Access: Organizations, Identity Providers, and Groups Read"
+          },
+          {
+            "permission": "Access: Organizations, Identity Providers, and Groups Write"
+          },
+          {
+            "permission": "Memberships Read"
+          }
         ]
-      },
-      "capabilities": [
-        "CAPABILITY_SYNC"
-      ],
-      "permissions": {}
+      }
     },
     {
       "resourceType": {
@@ -34,13 +55,41 @@
         "displayName": "Role",
         "traits": [
           "TRAIT_ROLE"
+        ],
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Account Settings Read"
+              },
+              {
+                "permission": "Memberships Read"
+              },
+              {
+                "permission": "Memberships Write"
+              }
+            ]
+          }
         ]
       },
       "capabilities": [
         "CAPABILITY_SYNC",
         "CAPABILITY_PROVISION"
       ],
-      "permissions": {}
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Account Settings Read"
+          },
+          {
+            "permission": "Memberships Read"
+          },
+          {
+            "permission": "Memberships Write"
+          }
+        ]
+      }
     },
     {
       "resourceType": {
@@ -52,13 +101,39 @@
         "annotations": [
           {
             "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlementsAndGrants"
+          },
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Account Settings Read"
+              },
+              {
+                "permission": "Access: Apps and Policies Read"
+              },
+              {
+                "permission": "Memberships Read"
+              }
+            ]
           }
         ]
       },
       "capabilities": [
         "CAPABILITY_SYNC"
       ],
-      "permissions": {}
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Account Settings Read"
+          },
+          {
+            "permission": "Access: Apps and Policies Read"
+          },
+          {
+            "permission": "Memberships Read"
+          }
+        ]
+      }
     }
   ],
   "connectorCapabilities": [

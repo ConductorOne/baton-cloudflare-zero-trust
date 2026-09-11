@@ -2,13 +2,21 @@ package connector
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+)
+
+// User resources are sourced from two Cloudflare APIs. Both are paginated
+// independently within a single bag so that a sync fetches every user.
+const (
+	accessUsersPageState    = "access_users"
+	accountMembersPageState = "account_members"
 )
 
 type userBuilder struct {
@@ -65,54 +73,124 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 	return resource, nil
 }
 
-// List returns all the users from the database as resource objects.
-// Users include a UserTrait because they are the 'shape' of a standard user.
-func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
-	bag, page, err := parsePageToken(pToken.Token, &v2.ResourceId{ResourceType: o.resourceType.Id})
-	if err != nil {
-		return nil, "", nil, err
+// newUserResourceFromMember builds a user resource from an account member so
+// that account members and Access users are emitted as a single resource type.
+func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, error) {
+	accessSeat := false
+	accUser := cloudflare.AccessUser{
+		ID:         member.User.ID,
+		Name:       fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
+		Email:      member.User.Email,
+		AccessSeat: &accessSeat,
 	}
 
-	users, info, err := o.client.ListAccessUsers(ctx, cloudflare.AccountIdentifier(o.accountId), cloudflare.AccessUserParams{
-		ResultInfo: cloudflare.ResultInfo{
-			Page:    page,
-			PerPage: resourcePageSize,
-		},
-	})
-	if err != nil {
-		return nil, "", nil, wrapError(err, "failed to list users")
+	return newUserResource(accUser)
+}
+
+// List returns all the users from both the Access users and account members
+// endpoints as user resource objects. Both endpoints are paginated within a
+// single bag: the Access users pages are exhausted first, then the account
+// members pages, so every user is shipped in one resource type.
+func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+	bag := &pagination.Bag{}
+	if err := bag.Unmarshal(opts.PageToken.Token); err != nil {
+		return nil, nil, err
 	}
 
-	resources := make([]*v2.Resource, 0, len(users))
-	for _, user := range users {
-		resource, err := newUserResource(user)
+	if bag.Current() == nil {
+		// Stack is LIFO: account members are processed after Access users.
+		bag.Push(pagination.PageState{ResourceTypeID: accountMembersPageState})
+		bag.Push(pagination.PageState{ResourceTypeID: accessUsersPageState})
+	}
+
+	page, err := getPageFromPageToken(bag.PageToken())
+	if err != nil {
+		return nil, nil, err
+	}
+	if page == 0 {
+		page = 1
+	}
+
+	var (
+		resources   []*v2.Resource
+		currentPage int
+		totalPages  int
+	)
+
+	switch bag.ResourceTypeID() {
+	case accessUsersPageState:
+		users, info, err := o.client.ListAccessUsers(ctx, cloudflare.AccountIdentifier(o.accountId), cloudflare.AccessUserParams{
+			ResultInfo: cloudflare.ResultInfo{
+				Page:    page,
+				PerPage: resourcePageSize,
+			},
+		})
 		if err != nil {
-			return nil, "", nil, wrapError(err, "failed to create user resource")
+			return nil, nil, wrapError(err, "failed to list users")
 		}
 
-		resources = append(resources, resource)
+		resources = make([]*v2.Resource, 0, len(users))
+		for _, user := range users {
+			resource, err := newUserResource(user)
+			if err != nil {
+				return nil, nil, wrapError(err, "failed to create user resource")
+			}
+
+			resources = append(resources, resource)
+		}
+		currentPage, totalPages = info.Page, info.TotalPages
+
+	case accountMembersPageState:
+		members, info, err := o.client.AccountMembers(ctx, o.accountId, cloudflare.PaginationOptions{
+			Page:    page,
+			PerPage: resourcePageSize,
+		})
+		if err != nil {
+			return nil, nil, wrapError(err, "failed to list members")
+		}
+
+		resources = make([]*v2.Resource, 0, len(members))
+		for _, member := range members {
+			resource, err := newUserResourceFromMember(member)
+			if err != nil {
+				return nil, nil, wrapError(err, "failed to create user resource")
+			}
+
+			resources = append(resources, resource)
+		}
+		currentPage, totalPages = info.Page, info.TotalPages
+
+	default:
+		return nil, nil, fmt.Errorf("baton-cloudflare-zero-trust: unexpected page state %q", bag.ResourceTypeID())
 	}
 
-	if info.TotalPages <= info.Page {
-		return resources, "", nil, nil
+	// If the current endpoint has more pages, advance its page number.
+	// Otherwise pop it from the bag and continue with the next endpoint (if any).
+	var nextToken string
+	if currentPage < totalPages {
+		nextToken, err = bag.NextToken(strconv.Itoa(page + 1))
+	} else {
+		nextToken, err = bag.NextToken("")
 	}
-
-	nextPage, err := getPageTokenFromPage(bag, page+1)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, nil, err
 	}
 
-	return resources, nextPage, nil, nil
+	if nextToken == "" {
+		return resources, nil, nil
+	}
+
+	return resources, &rs.SyncOpResults{NextPageToken: nextToken}, nil
 }
 
 // Entitlements always returns an empty slice for users.
-func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+func (o *userBuilder) Entitlements(_ context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 // Grants always returns an empty slice for users since they don't have any entitlements.
-func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
-	return nil, "", nil, nil
+func (o *userBuilder) Grants(ctx context.Context, resource *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	return nil, nil, nil
 }
 
 func newUserBuilder(client *cloudflare.API, accountId string) *userBuilder {

@@ -4,8 +4,10 @@ import (
 	"context"
 
 	"github.com/cloudflare/cloudflare-go"
+	cfg "github.com/conductorone/baton-cloudflare-zero-trust/pkg/config"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
@@ -14,21 +16,20 @@ type Connector struct {
 	accountId string
 }
 
-// ResourceSyncers returns a ResourceSyncer for each resource type that should be synced from the upstream service.
-func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
-	return []connectorbuilder.ResourceSyncer{
+// ResourceSyncers returns a ResourceSyncerV2 for each resource type that should be synced from the upstream service.
+func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
+	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client, d.accountId),
 		newGroupBuilder(d.client, d.accountId),
 		newRoleBuilder(d.client, d.accountId),
-		newMemberBuilder(d.client, d.accountId),
 	}
 }
 
 // Metadata returns metadata about the connector.
 func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
-		DisplayName: "Baton Cloudflare Zero Trust",
-		Description: "The template implementation of a baton connector",
+		DisplayName: "Cloudflare Zero Trust",
+		Description: "Syncs users, groups, and roles from Cloudflare Zero Trust and provisions group and role access.",
 	}, nil
 }
 
@@ -44,31 +45,38 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 }
 
 // New returns a new instance of the connector.
-func New(ctx context.Context, accountId, apiToken, apiKey, email, baseURL string) (*Connector, error) {
+func New(ctx context.Context, ac *cfg.CloudflareZeroTrust, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
 	var (
 		client *cloudflare.API
 		err    error
 	)
 
 	var opts []cloudflare.Option
-	if baseURL != "" {
-		opts = append(opts, cloudflare.BaseURL(baseURL))
+	if ac.BaseUrl != "" {
+		opts = append(opts, cloudflare.BaseURL(ac.BaseUrl))
 	}
 
-	if apiKey != "" && email != "" {
-		client, err = cloudflare.New(apiKey, email, opts...)
+	if ac.ApiKey != "" && ac.Email != "" {
+		client, err = cloudflare.New(ac.ApiKey, ac.Email, opts...)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	if apiToken != "" {
-		client, err = cloudflare.NewWithAPIToken(apiToken, opts...)
-	}
-
-	if err != nil {
-		return nil, err
+	if ac.ApiToken != "" {
+		client, err = cloudflare.NewWithAPIToken(ac.ApiToken, opts...)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return &Connector{
 		client:    client,
-		accountId: accountId,
-	}, nil
+		accountId: ac.AccountId,
+	}, nil, nil
+}
+
+// NewLambdaConnector returns a new instance of the connector for lambda use.
+func NewLambdaConnector(ctx context.Context, ac *cfg.CloudflareZeroTrust, opts *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
+	return New(ctx, ac, opts)
 }
