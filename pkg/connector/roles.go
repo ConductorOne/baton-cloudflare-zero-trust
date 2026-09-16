@@ -2,10 +2,8 @@ package connector
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -14,23 +12,30 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type roleBuilder struct {
 	resourceType *v2.ResourceType
 	client       *cloudflare.API
 	accountId    string
-	httpClient   *http.Client
 }
 
-const errMissingAccountID = "required missing account ID"
+const (
+	errMissingAccountID = "required missing account ID"
+	errMissingMemberID  = "required missing member ID"
+)
 
 // roleAssignmentEntitlement is the slug of the single assignment entitlement
 // declared for every role resource. It must stay in sync with the slug used
 // when constructing grants in Grants().
 const roleAssignmentEntitlement = "assigned"
 
-var ErrMissingAccountID = errors.New(errMissingAccountID)
+var (
+	ErrMissingAccountID = errors.New(errMissingAccountID)
+	ErrMissingMemberID  = errors.New(errMissingMemberID)
+)
 
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return r.resourceType
@@ -118,34 +123,20 @@ func (r *roleBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs
 	return nil, nil, nil
 }
 
-// GetAccountMember returns an account member.
-func (r *roleBuilder) GetAccountMember(ctx context.Context, accountID string, memberID string) (*cloudflare.AccountMemberDetailResponse, error) {
-	var accountMemberListResponse = &cloudflare.AccountMemberDetailResponse{}
+// getAccountMember returns an account member. cloudflare-go's AccountMember
+// authenticates with whichever scheme the client was built for and turns a
+// non-2xx response into a typed *cloudflare.Error, so neither concern is
+// handled here. It does not reject an empty member ID, which would address the
+// member collection instead of a member, so that is guarded.
+func (r *roleBuilder) getAccountMember(ctx context.Context, accountID string, memberID string) (cloudflare.AccountMember, error) {
 	if accountID == "" {
-		return &cloudflare.AccountMemberDetailResponse{}, ErrMissingAccountID
+		return cloudflare.AccountMember{}, ErrMissingAccountID
 	}
-	r.httpClient = &http.Client{}
-	requestURL := fmt.Sprintf("%s/accounts/%s/members/%s", r.client.BaseURL, accountID, memberID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
-	if err != nil {
-		return &cloudflare.AccountMemberDetailResponse{}, err
+	if memberID == "" {
+		return cloudflare.AccountMember{}, ErrMissingMemberID
 	}
 
-	req.Header.Add("Accept", "application/json")
-	req.Header.Add("X-Auth-Email", r.client.APIEmail)
-	req.Header.Add("X-Auth-Key", r.client.APIKey)
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return &cloudflare.AccountMemberDetailResponse{}, err
-	}
-
-	defer resp.Body.Close()
-	err = json.NewDecoder(resp.Body).Decode(accountMemberListResponse)
-	if err != nil {
-		return &cloudflare.AccountMemberDetailResponse{}, err
-	}
-
-	return accountMemberListResponse, err
+	return r.client.AccountMember(ctx, accountID, memberID)
 }
 
 // rolePermissionGroup finds the permission group that mirrors the given
@@ -179,7 +170,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	l := ctxzap.Extract(ctx)
 
 	if principal.Id.ResourceType != userResourceType.Id {
-		l.Warn(
+		l.Debug(
 			"baton-cloudflare: only users can be granted role membership",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
@@ -192,7 +183,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
+	account, err := r.getAccountMember(ctx, r.accountId, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +193,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	// A member with any existing Policies is on the Domain Scoped Roles
 	// model; grant via an equivalent Policy instead of the legacy Roles
 	// list, which Cloudflare rejects once Policies are present.
-	if len(account.Result.Policies) > 0 {
+	if len(account.Policies) > 0 {
 		group, err := r.rolePermissionGroup(ctx, roleId)
 		if err != nil {
 			return nil, err
@@ -215,13 +206,13 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		}
 
 		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
-			Policies: append(account.Result.Policies, newPolicy),
+			Policies: append(account.Policies, newPolicy),
 		})
 		if err != nil {
 			return nil, err
 		}
 
-		l.Warn("Role has been created.",
+		l.Debug("Role has been created.",
 			zap.String("ID", member.ID),
 			zap.String("Status", member.Status),
 		)
@@ -230,7 +221,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	}
 
 	roles := []cloudflare.AccountRole{{ID: roleId}}
-	for _, role := range account.Result.Roles {
+	for _, role := range account.Roles {
 		roles = append(roles, cloudflare.AccountRole{
 			ID: role.ID,
 		})
@@ -243,7 +234,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	l.Warn("Role has been created.",
+	l.Debug("Role has been created.",
 		zap.String("ID", member.ID),
 		zap.String("Status", member.Status),
 	)
@@ -257,7 +248,11 @@ func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, er
 		return "", wrapError(err, "failed to list user members")
 	}
 	if member == nil {
-		return "", nil
+		return "", status.Errorf(
+			codes.NotFound,
+			"no Cloudflare account member has user ID %q; role assignment requires account membership",
+			userId,
+		)
 	}
 
 	return member.ID, nil
@@ -269,7 +264,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	principal := grantToRevoke.Principal
 
 	if principal.Id.ResourceType != userResourceType.Id {
-		l.Warn(
+		l.Debug(
 			"couldflare-connector: only users can have role membership revoked",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
@@ -285,7 +280,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		return nil, err
 	}
 
-	account, err := r.GetAccountMember(ctx, r.accountId, memberId)
+	account, err := r.getAccountMember(ctx, r.accountId, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +288,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	// See Grant: a member with any existing Policies is on the Domain
 	// Scoped Roles model, so revoke by removing the equivalent Policy
 	// instead of filtering the legacy Roles list.
-	if len(account.Result.Policies) > 0 {
+	if len(account.Policies) > 0 {
 		group, err := r.rolePermissionGroup(ctx, roleId)
 		if err != nil {
 			return nil, err
@@ -304,8 +299,8 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		// dropping the whole policy would revoke unrelated grants it also
 		// carries. Only drop a policy if removing the group leaves it with
 		// no permission groups at all.
-		policies := make([]cloudflare.Policy, 0, len(account.Result.Policies))
-		for _, policy := range account.Result.Policies {
+		policies := make([]cloudflare.Policy, 0, len(account.Policies))
+		for _, policy := range account.Policies {
 			remaining := make([]cloudflare.PermissionGroup, 0, len(policy.PermissionGroups))
 			for _, pg := range policy.PermissionGroups {
 				if pg.ID == group.ID {
@@ -327,7 +322,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 			return nil, err
 		}
 
-		l.Warn("Role has been revoked.",
+		l.Debug("Role has been revoked.",
 			zap.String("ID", member.ID),
 			zap.String("Status", member.Status),
 		)
@@ -336,7 +331,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	}
 
 	roles := []cloudflare.AccountRole{}
-	for _, role := range account.Result.Roles {
+	for _, role := range account.Roles {
 		if roleId != role.ID {
 			roles = append(roles, cloudflare.AccountRole{
 				ID: role.ID,
@@ -351,7 +346,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		return nil, err
 	}
 
-	l.Warn("Role has been revoked.",
+	l.Debug("Role has been revoked.",
 		zap.String("ID", member.ID),
 		zap.String("Status", member.Status),
 	)
