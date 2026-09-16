@@ -1,7 +1,6 @@
 package connector
 
 import (
-	"fmt"
 	"strconv"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -41,16 +40,6 @@ func getPageFromPageToken(token string) (int, error) {
 	}
 
 	return int(page), nil
-}
-
-func getPageTokenFromPage(bag *pagination.Bag, page int) (string, error) {
-	nextPage := fmt.Sprintf("%d", page)
-	pageToken, err := bag.NextToken(nextPage)
-	if err != nil {
-		return "", err
-	}
-
-	return pageToken, nil
 }
 
 var resourcePageSize = 50

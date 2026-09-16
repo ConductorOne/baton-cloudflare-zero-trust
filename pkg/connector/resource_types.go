@@ -29,10 +29,6 @@ var (
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_ROLE,
 		},
-		Annotations: annotations.New(capabilityPermissions(
-			"Account Settings Read",
-			"Memberships Read",
-			"Memberships Write",
-		)),
+		Annotations: annotationsForRoleResourceType(),
 	}
 )
