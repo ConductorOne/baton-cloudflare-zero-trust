@@ -33,15 +33,12 @@ func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
 		"group_id":   group.ID,
 	}
 
-	groupTraitOptions := []rs.GroupTraitOption{
-		rs.WithGroupProfile(profile),
-	}
-
 	ret, err := rs.NewGroupResource(
 		group.Name,
 		groupResourceType,
 		group.ID,
-		groupTraitOptions,
+		nil,
+		rs.WithResourceProfile(profile),
 	)
 	if err != nil {
 		return nil, err

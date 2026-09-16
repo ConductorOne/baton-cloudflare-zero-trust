@@ -40,10 +40,13 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 	}
 
 	userTraits := []rs.UserTraitOption{
-		rs.WithUserProfile(profile),
-		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
 		rs.WithUserLogin(user.Email),
 		rs.WithEmail(user.Email, true),
+	}
+
+	resourceOpts := []rs.ResourceOption{
+		rs.WithResourceProfile(profile),
+		rs.WithResourceStatus(v2.Status_RESOURCE_STATUS_UNSPECIFIED, ""),
 	}
 
 	if user.LastSuccessfulLogin != "" {
@@ -56,7 +59,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 	if user.CreatedAt != "" {
 		createdAt, err := time.Parse("2006-01-02T15:04:05.000000Z", user.CreatedAt)
 		if err == nil {
-			userTraits = append(userTraits, rs.WithCreatedAt(createdAt))
+			resourceOpts = append(resourceOpts, rs.WithResourceCreatedAt(createdAt))
 		}
 	}
 
@@ -65,7 +68,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 		displayName = user.Email
 	}
 
-	resource, err := rs.NewUserResource(displayName, userResourceType, user.ID, userTraits)
+	resource, err := rs.NewUserResource(displayName, userResourceType, user.ID, userTraits, resourceOpts...)
 	if err != nil {
 		return nil, err
 	}

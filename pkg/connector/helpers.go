@@ -62,14 +62,15 @@ func groupContainsUser(target string, emails []string) bool {
 }
 
 func getValueFromUserTrait(resource *v2.Resource, profileField string) (string, error) {
-	trait, err := rs.GetUserTrait(resource)
-	if err != nil {
+	// The profile now lives on the resource rather than the trait, but the trait
+	// lookup is kept so a non-user resource is still rejected here.
+	if _, err := rs.GetUserTrait(resource); err != nil {
 		return "", err
 	}
 
-	value, ok := rs.GetProfileStringValue(trait.Profile, profileField)
+	value, ok := rs.GetProfileStringValue(rs.GetProfile(resource), profileField)
 	if !ok {
-		return "", err
+		return "", nil
 	}
 
 	return value, nil

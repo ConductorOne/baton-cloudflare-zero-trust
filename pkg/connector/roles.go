@@ -39,16 +39,13 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 		"role_name": role.Name,
 	}
 
-	roleTraitOptions := []rs.RoleTraitOption{
-		rs.WithRoleProfile(profile),
-	}
-
 	ret, err := rs.NewRoleResource(
 		role.Name,
 		resourceTypeRole,
 		role.ID,
-		roleTraitOptions,
+		nil,
 		rs.WithParentResourceID(parentResourceID),
+		rs.WithResourceProfile(profile),
 	)
 	if err != nil {
 		return nil, err
