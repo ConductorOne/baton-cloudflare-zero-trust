@@ -115,13 +115,18 @@ func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, e
 	}
 
 	userTraits := []rs.UserTraitOption{
-		rs.WithUserProfile(profile),
-		rs.WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
 		rs.WithUserLogin(member.User.Email),
 		rs.WithEmail(member.User.Email, true),
 	}
 
-	return rs.NewUserResource(displayName, userResourceType, member.User.ID, userTraits)
+	return rs.NewUserResource(
+		displayName,
+		userResourceType,
+		member.User.ID,
+		userTraits,
+		rs.WithResourceProfile(profile),
+		rs.WithResourceStatus(v2.Status_RESOURCE_STATUS_UNSPECIFIED, ""),
+	)
 }
 
 // List returns all the users from both the Access users and account members
