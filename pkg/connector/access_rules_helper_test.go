@@ -19,6 +19,10 @@ func everyoneRule() map[string]interface{} {
 	return map[string]interface{}{"everyone": map[string]interface{}{}}
 }
 
+func geoRule(countryCode string) map[string]interface{} {
+	return map[string]interface{}{"geo": map[string]interface{}{"country_code": countryCode}}
+}
+
 func groupRule(id string) map[string]interface{} {
 	return map[string]interface{}{"group": map[string]interface{}{"id": id}}
 }
@@ -72,23 +76,98 @@ func TestSatisfiesRequireExclude_RequireAndExclude(t *testing.T) {
 	require.False(t, satisfiesRequireExclude(grp, user("blocked@x.com")), "excluded user is not satisfied even though require is met")
 }
 
-// TestSatisfiesRequireExclude_GroupRuleIsNotEnforced documents the accepted
-// limitation: a "group" rule in Require or Exclude is never evaluated, so
-// neither gates a user who otherwise matches. See the package doc comment
-// in access_rules_helper.go and the "Access group rules" section of
+// TestSatisfiesRequireExclude_UnevaluableRulesAreSkipped documents the
+// accepted limitation: a rule this connector cannot evaluate is skipped in
+// both lists rather than counted as a miss, so it neither empties the group
+// (Require) nor blocks a match (Exclude). See the package doc comment in
+// access_rules_helper.go and the "Access group rules" section of
 // docs/connector.mdx.
-func TestSatisfiesRequireExclude_GroupRuleIsNotEnforced(t *testing.T) {
-	requireGroup := &cloudflare.AccessGroup{ID: "g1", Require: []interface{}{groupRule("eng")}}
-	require.False(t, satisfiesRequireExclude(requireGroup, user("a@x.com")), "an unenforceable require rule fails closed: nobody satisfies it")
+func TestSatisfiesRequireExclude_UnevaluableRulesAreSkipped(t *testing.T) {
+	tests := []struct {
+		name  string
+		group *cloudflare.AccessGroup
+		want  bool
+		why   string
+	}{
+		{
+			"contextual require does not narrow membership",
+			&cloudflare.AccessGroup{Require: []interface{}{geoRule("US")}},
+			true,
+			"a geo rule constrains the request, not who the policy grants access to",
+		},
+		{
+			"nested group require is skipped",
+			&cloudflare.AccessGroup{Require: []interface{}{groupRule("eng")}},
+			true,
+			"an unresolvable identity rule must not empty the group",
+		},
+		{
+			"idp claim require is skipped",
+			&cloudflare.AccessGroup{Require: []interface{}{map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}}}},
+			true,
+			"",
+		},
+		{
+			"evaluable require still gates",
+			&cloudflare.AccessGroup{Require: []interface{}{emailRule("someone-else@x.com")}},
+			false,
+			"an email rule names identities and must be enforced",
+		},
+		{
+			"evaluable require alongside a skipped one still gates",
+			&cloudflare.AccessGroup{Require: []interface{}{geoRule("US"), emailRule("someone-else@x.com")}},
+			false,
+			"",
+		},
+		{
+			"contextual exclude never blocks",
+			&cloudflare.AccessGroup{Exclude: []interface{}{geoRule("US")}},
+			true,
+			"",
+		},
+		{
+			"nested group exclude is not enforced",
+			&cloudflare.AccessGroup{Exclude: []interface{}{groupRule("banned")}},
+			true,
+			"",
+		},
+		{
+			"evaluable exclude still blocks",
+			&cloudflare.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
+			false,
+			"",
+		},
+	}
 
-	excludeGroup := &cloudflare.AccessGroup{ID: "g2", Exclude: []interface{}{groupRule("banned")}}
-	require.True(t, satisfiesRequireExclude(excludeGroup, user("a@x.com")), "an unenforceable exclude rule is not applied: it never blocks a match")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, satisfiesRequireExclude(tt.group, user("a@x.com")), tt.why)
+		})
+	}
 }
 
-func TestContainsUnsupportedGroupRule(t *testing.T) {
-	require.True(t, containsUnsupportedGroupRule([]interface{}{emailRule("a@x.com"), groupRule("eng")}))
-	require.False(t, containsUnsupportedGroupRule([]interface{}{emailRule("a@x.com"), everyoneRule()}))
-	require.False(t, containsUnsupportedGroupRule(nil))
+// TestAnyRuleMatches_UnevaluableRulesDoNotGrant checks the other neutral
+// element: under Include's OR, a rule that cannot be evaluated must not
+// admit the whole account.
+func TestAnyRuleMatches_UnevaluableRulesDoNotGrant(t *testing.T) {
+	require.False(t, anyRuleMatches([]interface{}{geoRule("US")}, user("a@x.com")))
+	require.False(t, anyRuleMatches([]interface{}{groupRule("eng")}, user("a@x.com")))
+	require.True(t, anyRuleMatches([]interface{}{geoRule("US"), emailRule("a@x.com")}, user("a@x.com")))
+}
+
+func TestUnresolvableIdentityRules(t *testing.T) {
+	// Contextual rules are skipped by design and are not reported.
+	require.Empty(t, unresolvableIdentityRules([]interface{}{emailRule("a@x.com"), everyoneRule(), geoRule("US")}))
+	require.Empty(t, unresolvableIdentityRules(nil))
+
+	require.Equal(t,
+		[]string{"group:eng", "okta"},
+		unresolvableIdentityRules([]interface{}{
+			emailRule("a@x.com"),
+			groupRule("eng"),
+			map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}},
+		}),
+	)
 }
 
 func TestDescribeAccessRule(t *testing.T) {
@@ -153,12 +232,24 @@ func TestRestrictsNestedExpansion(t *testing.T) {
 			want:  true,
 		},
 		{
+			// A skipped rule filters nothing, so it cannot filter the
+			// expanded set either.
 			name:  "require references a group",
 			group: cloudflare.AccessGroup{Require: []interface{}{groupRule("eng")}},
-			want:  true,
+			want:  false,
 		},
 		{
-			name:  "any exclude restricts",
+			name:  "contextual require does not restrict",
+			group: cloudflare.AccessGroup{Require: []interface{}{geoRule("US")}},
+			want:  false,
+		},
+		{
+			name:  "contextual exclude does not restrict",
+			group: cloudflare.AccessGroup{Exclude: []interface{}{geoRule("US")}},
+			want:  false,
+		},
+		{
+			name:  "an evaluable exclude restricts",
 			group: cloudflare.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
 			want:  true,
 		},
@@ -168,9 +259,9 @@ func TestRestrictsNestedExpansion(t *testing.T) {
 			want:  true,
 		},
 		{
-			name:  "malformed require rule fails closed",
+			name:  "malformed require rule is skipped, not restrictive",
 			group: cloudflare.AccessGroup{Require: []interface{}{"garbage"}},
-			want:  true,
+			want:  false,
 		},
 	}
 

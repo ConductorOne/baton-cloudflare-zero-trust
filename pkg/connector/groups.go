@@ -135,26 +135,26 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 
 	directIncludeRules, nestedGroupIDs := splitIncludeRules(group.Include)
 
-	// A "group" rule in Require/Exclude is not evaluated by this connector
-	// (see the package doc comment in access_rules_helper.go); Exclude is
-	// the risky direction, since it means a member who should be excluded
-	// via nested-group membership may still receive this grant. Logged once
-	// per group, on the first page, rather than on every page of members.
-	// Debug, not Warn: this recurs every sync for as long as the customer's
-	// Cloudflare configuration combines Require/Exclude with a nested-group
-	// reference, so it isn't the truly exceptional, non-recurrent condition
-	// Warn is reserved for.
+	// Rules naming identities this connector cannot resolve (nested groups,
+	// email lists, IdP claims) are skipped during evaluation, so this group's
+	// membership may be wider than Cloudflare would admit. Logged once per
+	// group, on the first page, rather than on every page of members. Debug,
+	// not Warn: this recurs every sync for as long as the customer's
+	// Cloudflare configuration contains such a rule, so it isn't the truly
+	// exceptional, non-recurrent condition Warn is reserved for.
 	if page == 0 {
-		if containsUnsupportedGroupRule(group.Exclude) {
+		if skipped := unresolvableIdentityRules(group.Require); len(skipped) > 0 {
 			ctxzap.Extract(ctx).Debug(
-				"baton-cloudflare-zero-trust: group Exclude rule references a nested group, which this connector does not evaluate — excluded members may still be granted",
+				"baton-cloudflare-zero-trust: group Require rules name identities this connector cannot resolve and were skipped; members that do not satisfy them may still be granted",
 				zap.String("group_id", group.ID),
+				zap.Strings("skipped_rules", skipped),
 			)
 		}
-		if containsUnsupportedGroupRule(group.Require) {
+		if skipped := unresolvableIdentityRules(group.Exclude); len(skipped) > 0 {
 			ctxzap.Extract(ctx).Debug(
-				"baton-cloudflare-zero-trust: group Require rule references a nested group, which this connector does not evaluate — no member will satisfy it",
+				"baton-cloudflare-zero-trust: group Exclude rules name identities this connector cannot resolve and were skipped; members they should exclude may still be granted",
 				zap.String("group_id", group.ID),
+				zap.Strings("skipped_rules", skipped),
 			)
 		}
 	}
