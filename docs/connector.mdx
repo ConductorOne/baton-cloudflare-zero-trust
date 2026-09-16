@@ -42,14 +42,30 @@ list they appear in:
 
 | List | Evaluated rule types |
 | :--- | :--- |
-| Include | `email`, `email_domain`, `everyone`, `group` (nested Access group) |
+| Include | `email`, `email_domain`, `everyone`, `group` (nested Access group, unless the group also has `Require`/`Exclude` rules — see below) |
 | Require | `email`, `email_domain`, `everyone` |
 | Exclude | `email`, `email_domain`, `everyone` |
 
 A nested Access group referenced in **Include** is represented as an
 expandable grant on the referenced group's own membership — so nested
-group membership (including further nesting) is fully reflected in C1,
-without this connector re-evaluating every member on every sync.
+group membership (including further nesting) is reflected in C1 without
+this connector re-evaluating every member on every sync.
+
+<Warning>
+**Nested Include membership is not reported when the same group also has
+`Require` or `Exclude` rules.** An expandable grant is a union: it pulls in
+everyone who holds the nested group's membership, and the outer group's
+`Require`/`Exclude` rules cannot be applied to the members it pulls in. A
+member excluded by the outer group would otherwise still be reported as a
+member of it.
+
+Rather than over-report access, the connector omits the nested membership
+for those groups and reports only the members matched directly by the
+outer group's own `email`, `email_domain`, and `everyone` rules. A
+`Require` list consisting only of `everyone` is not treated as a
+restriction, since every user satisfies it. Affected groups are logged as
+a warning at sync time.
+</Warning>
 
 <Warning>
 **A nested Access group referenced in Require or Exclude is not

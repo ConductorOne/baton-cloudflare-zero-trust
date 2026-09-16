@@ -18,6 +18,9 @@ import (
 //   - Include supports "email", "email_domain", "everyone", and "group"
 //     (a nested Access Group). "group" is resolved as a GrantExpandable
 //     grant in groups.go rather than evaluated here — see splitIncludeRules.
+//     That expansion is a union and cannot honor the outer group's
+//     Require/Exclude, so it is suppressed when those lists can narrow
+//     membership — see restrictsNestedExpansion.
 //
 //   - Require and Exclude support only "email", "email_domain", and
 //     "everyone". A "group" rule in Require or Exclude is NOT evaluated:
@@ -205,4 +208,35 @@ func emailDomain(email string) string {
 		return ""
 	}
 	return email[idx+1:]
+}
+
+// restrictsNestedExpansion reports whether a group's Require/Exclude lists
+// can narrow the membership it inherits from a nested Include group.
+//
+// A nested Include rule is emitted as a GrantExpandable grant, which the
+// expansion engine resolves as a pure union: every principal holding the
+// nested group's member entitlement gains the outer group's too. There is
+// no hook for re-applying the outer group's Require/Exclude to those
+// expanded principals, so expansion only reflects Cloudflare's semantics
+// when neither list can filter anyone out.
+//
+// Any Exclude rule restricts. A Require rule restricts unless it is
+// "everyone", which every user satisfies by definition and so cannot
+// narrow the expanded set.
+func restrictsNestedExpansion(grp *cloudflare.AccessGroup) bool {
+	if len(grp.Exclude) > 0 {
+		return true
+	}
+
+	for _, rule := range grp.Require {
+		rm, ok := rule.(map[string]interface{})
+		if !ok {
+			return true
+		}
+		if _, ok := rm["everyone"]; !ok {
+			return true
+		}
+	}
+
+	return false
 }

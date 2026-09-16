@@ -125,3 +125,58 @@ func TestDescribeAccessRules(t *testing.T) {
 
 	require.Equal(t, []interface{}{"email:a@x.com", "everyone", "group:eng"}, described)
 }
+
+func TestRestrictsNestedExpansion(t *testing.T) {
+	tests := []struct {
+		name  string
+		group cloudflare.AccessGroup
+		want  bool
+	}{
+		{
+			name:  "no require or exclude",
+			group: cloudflare.AccessGroup{Include: []interface{}{groupRule("eng")}},
+			want:  false,
+		},
+		{
+			name:  "require everyone only",
+			group: cloudflare.AccessGroup{Require: []interface{}{everyoneRule()}},
+			want:  false,
+		},
+		{
+			name:  "require email narrows the set",
+			group: cloudflare.AccessGroup{Require: []interface{}{emailRule("a@x.com")}},
+			want:  true,
+		},
+		{
+			name:  "require everyone alongside a narrowing rule",
+			group: cloudflare.AccessGroup{Require: []interface{}{everyoneRule(), emailDomainRule("x.com")}},
+			want:  true,
+		},
+		{
+			name:  "require references a group",
+			group: cloudflare.AccessGroup{Require: []interface{}{groupRule("eng")}},
+			want:  true,
+		},
+		{
+			name:  "any exclude restricts",
+			group: cloudflare.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
+			want:  true,
+		},
+		{
+			name:  "exclude wins over a harmless require",
+			group: cloudflare.AccessGroup{Require: []interface{}{everyoneRule()}, Exclude: []interface{}{everyoneRule()}},
+			want:  true,
+		},
+		{
+			name:  "malformed require rule fails closed",
+			group: cloudflare.AccessGroup{Require: []interface{}{"garbage"}},
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, restrictsNestedExpansion(&tt.group))
+		})
+	}
+}

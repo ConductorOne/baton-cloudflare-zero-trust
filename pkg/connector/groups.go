@@ -179,6 +179,22 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	// against the nested group's own member entitlement, not flattened to
 	// individual users. Emit them only once, on the first page, since the
 	// grant is deterministic and independent of member pagination.
+	//
+	// Expansion is a pure union and cannot re-apply this group's
+	// Require/Exclude to the principals it pulls in, so when either list
+	// can narrow membership the expandable grant would over-grant: an
+	// excluded member of the nested group would still be reported as a
+	// member here. Skip it in that case and fail closed, reporting only
+	// the members the direct rules above have already gated.
+	if page == 0 && restrictsNestedExpansion(&group) && len(nestedGroupIDs) > 0 {
+		ctxzap.Extract(ctx).Warn(
+			"baton-cloudflare-zero-trust: group has both a nested-group Include rule and Require/Exclude rules, which cannot be combined; nested membership is not reported for this group",
+			zap.String("group_id", group.ID),
+			zap.Int("nested_group_count", len(nestedGroupIDs)),
+		)
+		nestedGroupIDs = nil
+	}
+
 	if page == 0 {
 		for _, nestedGroupID := range nestedGroupIDs {
 			nestedGroupResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id, Resource: nestedGroupID}}
