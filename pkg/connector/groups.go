@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -255,17 +256,16 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 		return nil, wrapError(err, "failed to get access group")
 	}
 
-	var grants []interface{}
-	// existing emails in group.
-	grants = append(grants, group.Include...)
-	// new access email to add to group.
-	grants = append(grants, map[string]interface{}{"email": map[string]interface{}{"email": email}})
+	for _, rule := range group.Include {
+		if ruleEmail, ok := includeRuleEmail(rule); ok && strings.EqualFold(ruleEmail, email) {
+			return annotations.New(&v2.GrantAlreadyExists{}), nil
+		}
+	}
 
-	_, err = g.client.UpdateAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.UpdateAccessGroupParams{
-		ID:      entitlement.Resource.Id.Resource,
-		Include: grants,
-	})
-	if err != nil {
+	include := append(append([]interface{}{}, group.Include...),
+		map[string]interface{}{"email": map[string]interface{}{"email": email}})
+
+	if err := g.updateAccessGroupInclude(ctx, &group, include); err != nil {
 		return nil, fmt.Errorf("baton-cloudflare-zero-trust: failed to add user to group: %w", err)
 	}
 
@@ -296,25 +296,67 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 		return nil, wrapError(err, "failed to get access group")
 	}
 
-	var grants []interface{}
-	// send only the grants that do not match the email to revoke.
-	for _, g := range group.Include {
-		value := g.(map[string]interface{})["email"].(map[string]interface{})["email"]
-		if value != email {
-			grants = append(grants, g)
+	// Rebuild Include without the email being revoked. Every other rule is
+	// carried over untouched: this group's membership can come from
+	// email_domain, everyone or a nested group as well, and those rules are
+	// what the rest of the group's members depend on.
+	include := make([]interface{}, 0, len(group.Include))
+	found := false
+	for _, rule := range group.Include {
+		if ruleEmail, ok := includeRuleEmail(rule); ok && strings.EqualFold(ruleEmail, email) {
+			found = true
+			continue
 		}
+		include = append(include, rule)
 	}
 
-	_, err = g.client.UpdateAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.UpdateAccessGroupParams{
-		ID:      entitlement.Resource.Id.Resource,
-		Include: grants,
-	})
+	if !found {
+		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
+	}
 
-	if err != nil {
+	if err := g.updateAccessGroupInclude(ctx, &group, include); err != nil {
 		return nil, fmt.Errorf("baton-cloudflare-zero-trust: failed to remove user from group: %w", err)
 	}
 
 	return nil, nil
+}
+
+// includeRuleEmail returns the address named by an "email" Include rule.
+// Rules of any other type, and malformed ones, report false rather than
+// panicking on a type assertion: an Access group's Include list can hold
+// email_domain, everyone, geo, ip or nested group rules too.
+func includeRuleEmail(rule interface{}) (string, bool) {
+	rm, ok := rule.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+
+	em, ok := rm["email"].(map[string]interface{})
+	if !ok {
+		return "", false
+	}
+
+	address, ok := em["email"].(string)
+	if !ok || address == "" {
+		return "", false
+	}
+
+	return address, true
+}
+
+// updateAccessGroupInclude replaces a group's Include list, carrying the rest
+// of the group over unchanged. UpdateAccessGroupParams serializes Name,
+// Require and Exclude without omitempty, so sending only Include would write
+// an empty name and clear both other rule lists.
+func (g *groupBuilder) updateAccessGroupInclude(ctx context.Context, group *cloudflare.AccessGroup, include []interface{}) error {
+	_, err := g.client.UpdateAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.UpdateAccessGroupParams{
+		ID:      group.ID,
+		Name:    group.Name,
+		Include: include,
+		Require: group.Require,
+		Exclude: group.Exclude,
+	})
+	return err
 }
 
 func newGroupBuilder(client *cloudflare.API, accountId string) *groupBuilder {
