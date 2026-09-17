@@ -147,21 +147,22 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 
 	// Rules naming identities this connector cannot resolve (nested groups,
 	// email lists, IdP claims) are skipped during evaluation, so this group's
-	// membership may be wider than Cloudflare would admit. That is a
-	// skip-and-continue that leaves incomplete data, which is Warn rather than
-	// Debug: Debug is for expected data states, and a rule that may over-grant
-	// is not one. Logged once per group, on the first page, rather than on
-	// every page of members.
+	// membership may be wider than Cloudflare would admit. Logged once per
+	// group, on the first page, rather than on every page of members, and at
+	// Debug because these lines recur on every sync for as long as the
+	// customer's Cloudflare configuration contains such a rule. The same
+	// condition is documented in docs/connector.mdx and surfaced on the
+	// group's resource profile, which is where an operator is meant to see it.
 	if firstPage {
 		if skipped := unresolvableIdentityRules(group.Require); len(skipped) > 0 {
-			ctxzap.Extract(ctx).Warn(
+			ctxzap.Extract(ctx).Debug(
 				"baton-cloudflare-zero-trust: group Require rules name identities this connector cannot resolve and were skipped; members that do not satisfy them may still be granted",
 				zap.String("group_id", group.ID),
 				zap.Strings("skipped_rules", skipped),
 			)
 		}
 		if skipped := unresolvableIdentityRules(group.Exclude); len(skipped) > 0 {
-			ctxzap.Extract(ctx).Warn(
+			ctxzap.Extract(ctx).Debug(
 				"baton-cloudflare-zero-trust: group Exclude rules name identities this connector cannot resolve and were skipped; members they should exclude may still be granted",
 				zap.String("group_id", group.ID),
 				zap.Strings("skipped_rules", skipped),
@@ -197,7 +198,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	// member here. Skip it in that case and fail closed, reporting only
 	// the members the direct rules above have already gated.
 	if firstPage && restrictsNestedExpansion(&group) && len(nestedGroupIDs) > 0 {
-		ctxzap.Extract(ctx).Warn(
+		ctxzap.Extract(ctx).Debug(
 			"baton-cloudflare-zero-trust: group has both a nested-group Include rule and Require/Exclude rules, which cannot be combined; nested membership is not reported for this group",
 			zap.String("group_id", group.ID),
 			zap.Int("nested_group_count", len(nestedGroupIDs)),
@@ -236,7 +237,7 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	l := ctxzap.Extract(ctx)
 
 	if principal.Id.ResourceType != userResourceType.Id {
-		l.Warn(
+		l.Debug(
 			"baton-cloudflare-zero-trust: only users can be granted group membership",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
@@ -277,7 +278,7 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 	entitlement := grantToRevoke.Entitlement
 
 	if principal.Id.ResourceType != userResourceType.Id {
-		l.Warn(
+		l.Debug(
 			"baton-cloudflare-zero-trust: only users can have group membership revoked",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
