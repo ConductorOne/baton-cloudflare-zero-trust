@@ -312,19 +312,23 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 	}
 
 	include, found := filterIncludeEmail(group.Include, email)
-	if !found {
-		// The grant may have come from an email_domain or everyone rule
-		// instead. Removing it would mean editing a rule that governs other
-		// members too, so refuse the revoke rather than report a removal that
-		// did not happen and that the next sync would undo.
-		if anyRuleMatches(group.Include, cloudflare.AccessUser{Email: email}) {
-			return nil, status.Errorf(
-				codes.Unimplemented,
-				"baton-cloudflare-zero-trust: %s is a member of this group through a rule that names more than one user; remove that rule in Cloudflare instead",
-				email,
-			)
-		}
 
+	// Dropping the rule that names this address is only a revoke if nothing
+	// else in Include still admits them. An email_domain or everyone rule
+	// governs other members too, so it cannot be edited on one person's
+	// behalf; reporting success here would claim a removal that did not
+	// happen and that the next sync would undo. Tested against the filtered
+	// list, so it catches both a membership that never had its own email rule
+	// and one that had a redundant rule alongside a broader one.
+	if anyRuleMatches(include, cloudflare.AccessUser{Email: email}) {
+		return nil, status.Errorf(
+			codes.FailedPrecondition,
+			"baton-cloudflare-zero-trust: %s remains a member of this group through a rule that names more than one user; remove that rule in Cloudflare instead",
+			email,
+		)
+	}
+
+	if !found {
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 	}
 

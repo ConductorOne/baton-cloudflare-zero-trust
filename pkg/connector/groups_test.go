@@ -78,3 +78,72 @@ func TestFilterIncludeEmail(t *testing.T) {
 		require.Empty(t, rebuilt)
 	})
 }
+
+// TestRevokeDecision pins the fork Revoke takes after filtering: a revoke is
+// only reported as done when nothing left in Include still admits the user.
+// The logic is pure over group.Include, so it is exercised here directly
+// rather than through a stubbed Cloudflare client.
+func TestRevokeDecision(t *testing.T) {
+	const email = "jane@x.com"
+
+	type outcome string
+	const (
+		revoked     outcome = "revoked"
+		refused     outcome = "refused"
+		alreadyGone outcome = "already revoked"
+	)
+
+	decide := func(rules []interface{}) outcome {
+		include, found := filterIncludeEmail(rules, email)
+		if anyRuleMatches(include, user(email)) {
+			return refused
+		}
+		if !found {
+			return alreadyGone
+		}
+		return revoked
+	}
+
+	tests := []struct {
+		name    string
+		include []interface{}
+		want    outcome
+	}{
+		{
+			name:    "own email rule is the only source of membership",
+			include: []interface{}{emailRule(email), emailRule("other@x.com")},
+			want:    revoked,
+		},
+		{
+			name:    "email rule alongside a domain rule that still admits them",
+			include: []interface{}{emailRule(email), emailDomainRule("x.com")},
+			want:    refused,
+		},
+		{
+			name:    "email rule alongside an everyone rule",
+			include: []interface{}{emailRule(email), everyoneRule()},
+			want:    refused,
+		},
+		{
+			name:    "membership comes only from a domain rule",
+			include: []interface{}{emailDomainRule("x.com")},
+			want:    refused,
+		},
+		{
+			name:    "no rule admits them",
+			include: []interface{}{emailRule("other@x.com"), emailDomainRule("y.com")},
+			want:    alreadyGone,
+		},
+		{
+			name:    "a nested group rule is not evaluated, so it does not block the revoke",
+			include: []interface{}{emailRule(email), groupRule("eng")},
+			want:    revoked,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, decide(tt.include))
+		})
+	}
+}
