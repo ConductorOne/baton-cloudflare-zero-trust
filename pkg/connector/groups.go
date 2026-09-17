@@ -258,6 +258,19 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 		return nil, wrapError(err, "failed to get access group")
 	}
 
+	// Exclude overrides Include, so adding an Include rule for someone the
+	// group excludes would not grant them access: Grants() would refuse to
+	// emit the grant and the next sync would drop it again. Checked before
+	// the already-present check, since a principal who is both named in
+	// Include and excluded does not have access either.
+	if anyRuleMatches(group.Exclude, cloudflare.AccessUser{Email: email}) {
+		return nil, status.Errorf(
+			codes.FailedPrecondition,
+			"baton-cloudflare-zero-trust: an Exclude rule on this group blocks %s, so adding them to Include would not grant access; remove that rule in Cloudflare first",
+			email,
+		)
+	}
+
 	for _, rule := range group.Include {
 		if ruleEmail, ok := includeRuleEmail(rule); ok && strings.EqualFold(ruleEmail, email) {
 			return annotations.New(&v2.GrantAlreadyExists{}), nil
