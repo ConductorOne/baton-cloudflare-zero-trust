@@ -14,6 +14,8 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const memberRole = "member"
@@ -226,7 +228,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		return rv, nil, nil
 	}
 
-	nextPage, err := bag.NextToken(strconv.Itoa(info.Page + 1))
+	nextPage, err := bag.NextToken(strconv.Itoa(page + 1))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -296,21 +298,20 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 		return nil, wrapError(err, "failed to get access group")
 	}
 
-	// Rebuild Include without the email being revoked. Every other rule is
-	// carried over untouched: this group's membership can come from
-	// email_domain, everyone or a nested group as well, and those rules are
-	// what the rest of the group's members depend on.
-	include := make([]interface{}, 0, len(group.Include))
-	found := false
-	for _, rule := range group.Include {
-		if ruleEmail, ok := includeRuleEmail(rule); ok && strings.EqualFold(ruleEmail, email) {
-			found = true
-			continue
-		}
-		include = append(include, rule)
-	}
-
+	include, found := filterIncludeEmail(group.Include, email)
 	if !found {
+		// The grant may have come from an email_domain or everyone rule
+		// instead. Removing it would mean editing a rule that governs other
+		// members too, so refuse the revoke rather than report a removal that
+		// did not happen and that the next sync would undo.
+		if anyRuleMatches(group.Include, cloudflare.AccessUser{Email: email}) {
+			return nil, status.Errorf(
+				codes.Unimplemented,
+				"baton-cloudflare-zero-trust: %s is a member of this group through a rule that names more than one user; remove that rule in Cloudflare instead",
+				email,
+			)
+		}
+
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 	}
 
@@ -319,6 +320,24 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 	}
 
 	return nil, nil
+}
+
+// filterIncludeEmail rebuilds a group's Include list without the rule naming
+// one specific address, reporting whether such a rule was there. Every other
+// rule is carried over untouched: a group's membership can come from
+// email_domain, everyone or a nested group as well, and dropping those rules
+// here would delete them from the group on the update that follows.
+func filterIncludeEmail(include []interface{}, email string) ([]interface{}, bool) {
+	out := make([]interface{}, 0, len(include))
+	found := false
+	for _, rule := range include {
+		if ruleEmail, ok := includeRuleEmail(rule); ok && strings.EqualFold(ruleEmail, email) {
+			found = true
+			continue
+		}
+		out = append(out, rule)
+	}
+	return out, found
 }
 
 // includeRuleEmail returns the address named by an "email" Include rule.

@@ -33,11 +33,10 @@ func TestIncludeRuleEmail(t *testing.T) {
 	}
 }
 
-// TestRevokeRebuildPreservesNonEmailRules covers the filtering Revoke applies
-// to a group's Include list. A group's membership can come from email_domain,
-// everyone or a nested group as well, and dropping those rules here would
-// delete them from the group on the UpdateAccessGroup that follows.
-func TestRevokeRebuildPreservesNonEmailRules(t *testing.T) {
+// TestFilterIncludeEmail covers the filter Revoke applies to a group's
+// Include list. It calls the production function rather than restating the
+// loop, so a regression in Revoke's filtering is caught here.
+func TestFilterIncludeEmail(t *testing.T) {
 	original := []interface{}{
 		emailRule("keep@x.com"),
 		everyoneRule(),
@@ -46,21 +45,36 @@ func TestRevokeRebuildPreservesNonEmailRules(t *testing.T) {
 		emailDomainRule("x.com"),
 	}
 
-	var rebuilt []interface{}
-	found := false
-	for _, rule := range original {
-		if ruleEmail, ok := includeRuleEmail(rule); ok && ruleEmail == "revoke@x.com" {
-			found = true
-			continue
-		}
-		rebuilt = append(rebuilt, rule)
-	}
+	t.Run("removes only the named address", func(t *testing.T) {
+		rebuilt, found := filterIncludeEmail(original, "revoke@x.com")
 
-	require.True(t, found)
-	require.Equal(t, []interface{}{
-		emailRule("keep@x.com"),
-		everyoneRule(),
-		groupRule("eng"),
-		emailDomainRule("x.com"),
-	}, rebuilt, "only the revoked email rule is removed; every other rule survives")
+		require.True(t, found)
+		require.Equal(t, []interface{}{
+			emailRule("keep@x.com"),
+			everyoneRule(),
+			groupRule("eng"),
+			emailDomainRule("x.com"),
+		}, rebuilt, "every rule other than the revoked email survives")
+	})
+
+	t.Run("matches the address case-insensitively", func(t *testing.T) {
+		rebuilt, found := filterIncludeEmail(original, "REVOKE@X.COM")
+
+		require.True(t, found, "Cloudflare addresses are compared case-insensitively")
+		require.Len(t, rebuilt, 4)
+	})
+
+	t.Run("reports not found when no email rule names the address", func(t *testing.T) {
+		rebuilt, found := filterIncludeEmail(original, "absent@x.com")
+
+		require.False(t, found)
+		require.Equal(t, original, rebuilt, "the list is unchanged when nothing matched")
+	})
+
+	t.Run("empty include list", func(t *testing.T) {
+		rebuilt, found := filterIncludeEmail(nil, "a@x.com")
+
+		require.False(t, found)
+		require.Empty(t, rebuilt)
+	})
 }
