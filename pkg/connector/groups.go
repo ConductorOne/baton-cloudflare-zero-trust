@@ -113,6 +113,16 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		return nil, nil, err
 	}
 
+	// An empty page token parses to 0, which is both this method's "first
+	// call" signal and an invalid Cloudflare page number: PaginationOptions.Page
+	// is omitempty, so 0 drops the parameter and the API serves page 1 anyway.
+	// Capture the signal before normalizing, so the page number sent upstream
+	// and the one reported back in ResultInfo agree from the first call.
+	firstPage := page == 0
+	if page == 0 {
+		page = 1
+	}
+
 	memberUsers, info, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
 		Page:    page,
 		PerPage: resourcePageSize,
@@ -137,21 +147,21 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 
 	// Rules naming identities this connector cannot resolve (nested groups,
 	// email lists, IdP claims) are skipped during evaluation, so this group's
-	// membership may be wider than Cloudflare would admit. Logged once per
-	// group, on the first page, rather than on every page of members. Debug,
-	// not Warn: this recurs every sync for as long as the customer's
-	// Cloudflare configuration contains such a rule, so it isn't the truly
-	// exceptional, non-recurrent condition Warn is reserved for.
-	if page == 0 {
+	// membership may be wider than Cloudflare would admit. That is a
+	// skip-and-continue that leaves incomplete data, which is Warn rather than
+	// Debug: Debug is for expected data states, and a rule that may over-grant
+	// is not one. Logged once per group, on the first page, rather than on
+	// every page of members.
+	if firstPage {
 		if skipped := unresolvableIdentityRules(group.Require); len(skipped) > 0 {
-			ctxzap.Extract(ctx).Debug(
+			ctxzap.Extract(ctx).Warn(
 				"baton-cloudflare-zero-trust: group Require rules name identities this connector cannot resolve and were skipped; members that do not satisfy them may still be granted",
 				zap.String("group_id", group.ID),
 				zap.Strings("skipped_rules", skipped),
 			)
 		}
 		if skipped := unresolvableIdentityRules(group.Exclude); len(skipped) > 0 {
-			ctxzap.Extract(ctx).Debug(
+			ctxzap.Extract(ctx).Warn(
 				"baton-cloudflare-zero-trust: group Exclude rules name identities this connector cannot resolve and were skipped; members they should exclude may still be granted",
 				zap.String("group_id", group.ID),
 				zap.Strings("skipped_rules", skipped),
@@ -186,7 +196,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	// excluded member of the nested group would still be reported as a
 	// member here. Skip it in that case and fail closed, reporting only
 	// the members the direct rules above have already gated.
-	if page == 0 && restrictsNestedExpansion(&group) && len(nestedGroupIDs) > 0 {
+	if firstPage && restrictsNestedExpansion(&group) && len(nestedGroupIDs) > 0 {
 		ctxzap.Extract(ctx).Warn(
 			"baton-cloudflare-zero-trust: group has both a nested-group Include rule and Require/Exclude rules, which cannot be combined; nested membership is not reported for this group",
 			zap.String("group_id", group.ID),
@@ -195,7 +205,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		nestedGroupIDs = nil
 	}
 
-	if page == 0 {
+	if firstPage {
 		for _, nestedGroupID := range nestedGroupIDs {
 			nestedGroupResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id, Resource: nestedGroupID}}
 			nestedEntitlementID := ent.NewEntitlementID(nestedGroupResource, memberRole)
@@ -214,7 +224,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		return rv, nil, nil
 	}
 
-	nextPage, err := bag.NextToken(strconv.Itoa(page + 1))
+	nextPage, err := bag.NextToken(strconv.Itoa(info.Page + 1))
 	if err != nil {
 		return nil, nil, err
 	}
