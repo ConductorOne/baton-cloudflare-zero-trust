@@ -56,35 +56,6 @@ func annotationsForRoleResourceType() annotations.Annotations {
 	return annos
 }
 
-func getAccessIncludeEmails(include []interface{}) []string {
-	var emailArr []string
-	for _, includeRule := range include {
-		im, ok := includeRule.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		em, ok := im["email"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		email, ok := em["email"].(string)
-		if !ok {
-			continue
-		}
-		emailArr = append(emailArr, email)
-	}
-	return emailArr
-}
-
-func groupContainsUser(target string, emails []string) bool {
-	for _, email := range emails {
-		if target == email {
-			return true
-		}
-	}
-	return false
-}
-
 func getValueFromUserTrait(resource *v2.Resource, profileField string) (string, error) {
 	// The profile now lives on the resource rather than the trait, but the trait
 	// lookup is kept so a non-user resource is still rejected here.
@@ -142,8 +113,11 @@ func getEmailFromUserTrait(resource *v2.Resource) (string, error) {
 		}
 	}
 
+	// An absent profile field reads as ("", nil), so the value has to be
+	// checked as well as the error: returning an empty address here would let
+	// a caller write an Include rule naming nobody.
 	email, err := getValueFromUserTrait(resource, "email")
-	if err == nil {
+	if err == nil && email != "" {
 		return email, nil
 	}
 
