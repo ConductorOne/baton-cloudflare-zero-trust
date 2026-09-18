@@ -2,6 +2,7 @@ package connector
 
 import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 )
 
 var (
@@ -15,6 +16,17 @@ var (
 		Id:          "group",
 		DisplayName: "Group",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
+		// SkipEntitlements: the "member" entitlement is declared once via
+		// StaticEntitlements rather than per-resource Entitlements().
+		Annotations: annotations.New(
+			&v2.SkipEntitlements{},
+			capabilityPermissions(
+				"Account Settings Read",
+				"Access: Organizations, Identity Providers, and Groups Read",
+				"Access: Organizations, Identity Providers, and Groups Write",
+				"Memberships Read",
+			),
+		),
 	}
 	roleResourceType = &v2.ResourceType{
 		Id:          "role",
@@ -22,10 +34,6 @@ var (
 		Traits: []v2.ResourceType_Trait{
 			v2.ResourceType_TRAIT_ROLE,
 		},
-	}
-	memberResourceType = &v2.ResourceType{
-		Id:          "member",
-		DisplayName: "Member",
-		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+		Annotations: annotationsForRoleResourceType(),
 	}
 )

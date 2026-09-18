@@ -1,0 +1,167 @@
+{
+  "fields": [
+    {
+      "name": "log-level",
+      "description": "The log level: debug, info, warn, error",
+      "isOps": true,
+      "stringField": {
+        "defaultValue": "info"
+      }
+    },
+    {
+      "name": "log-level-debug-expires-at",
+      "description": "The timestamp indicating when debug-level logging should expire",
+      "isOps": true,
+      "stringField": {}
+    },
+    {
+      "name": "session-store-maximum-size",
+      "description": "The maximum size of the local in-memory session store cache in bytes.",
+      "isOps": true,
+      "intField": {
+        "defaultValue": "15728640"
+      }
+    },
+    {
+      "name": "otel-collector-endpoint",
+      "description": "The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)",
+      "isOps": true,
+      "stringField": {}
+    },
+    {
+      "name": "otel-collector-endpoint-tls-cert-path",
+      "description": "Path to a file containing a PEM-encoded certificate to use as a CA for TLS connections to the OpenTelemetry collector",
+      "isOps": true,
+      "stringField": {}
+    },
+    {
+      "name": "otel-collector-endpoint-tls-cert",
+      "description": "A PEM-encoded certificate to use as a CA for TLS connections to the OpenTelemetry collector",
+      "isOps": true,
+      "stringField": {}
+    },
+    {
+      "name": "otel-collector-endpoint-tls-insecure",
+      "description": "Allow insecure connections to the OpenTelemetry collector",
+      "isOps": true,
+      "boolField": {}
+    },
+    {
+      "name": "otel-tracing-disabled",
+      "description": "Disable OpenTelemetry tracing",
+      "isOps": true,
+      "boolField": {}
+    },
+    {
+      "name": "otel-logging-disabled",
+      "description": "Disable OpenTelemetry logging",
+      "isOps": true,
+      "boolField": {}
+    },
+    {
+      "name": "health-check",
+      "description": "Enable the HTTP health check endpoint",
+      "isOps": true,
+      "boolField": {}
+    },
+    {
+      "name": "health-check-port",
+      "description": "Port for the HTTP health check endpoint",
+      "isOps": true,
+      "intField": {
+        "defaultValue": "8081"
+      }
+    },
+    {
+      "name": "health-check-bind-address",
+      "description": "Bind address for health check server (127.0.0.1 for localhost-only)",
+      "isOps": true,
+      "stringField": {
+        "defaultValue": "127.0.0.1"
+      }
+    },
+    {
+      "name": "http-timeout-seconds",
+      "description": "HTTP client timeout in seconds (max 1800)",
+      "isOps": true,
+      "intField": {
+        "defaultValue": "300",
+        "rules": {
+          "lte": "1800",
+          "gte": "1"
+        }
+      }
+    },
+    {
+      "name": "account-id",
+      "displayName": "Account ID",
+      "description": "Cloudflare account ID",
+      "isRequired": true,
+      "stringField": {
+        "rules": {
+          "isRequired": true
+        }
+      }
+    },
+    {
+      "name": "api-key",
+      "displayName": "API Key",
+      "description": "Cloudflare API key",
+      "isRequired": true,
+      "isSecret": true,
+      "stringField": {
+        "rules": {
+          "isRequired": true
+        }
+      }
+    },
+    {
+      "name": "api-token",
+      "displayName": "API Token",
+      "description": "Cloudflare API token",
+      "isRequired": true,
+      "isSecret": true,
+      "stringField": {
+        "rules": {
+          "isRequired": true
+        }
+      }
+    },
+    {
+      "name": "email",
+      "displayName": "Email",
+      "description": "Cloudflare account email",
+      "isRequired": true,
+      "stringField": {
+        "rules": {
+          "isRequired": true
+        }
+      }
+    }
+  ],
+  "displayName": "Cloudflare Zero Trust",
+  "helpUrl": "/docs/baton/cloudflare-zero-trust",
+  "iconUrl": "/static/app-icons/cloudflare-zero-trust.svg",
+  "fieldGroups": [
+    {
+      "name": "api-token-group",
+      "displayName": "API Token",
+      "helpText": "Use an API token for authentication.",
+      "fields": [
+        "account-id",
+        "api-token"
+      ],
+      "default": true
+    },
+    {
+      "name": "api-key-group",
+      "displayName": "Email + API key",
+      "helpText": "Use an API key with email for authentication.",
+      "fields": [
+        "account-id",
+        "email",
+        "api-key"
+      ]
+    }
+  ]
+}
