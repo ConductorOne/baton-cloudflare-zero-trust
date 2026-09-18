@@ -91,12 +91,15 @@ func (g *groupBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.Sync
 func (g *groupBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	tmplResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id}}
 
-	// DisplayName and Description are left unset on purpose: the SDK only
-	// substitutes the group's own name when the template leaves them empty,
-	// so setting a constant here would render every group's entitlement
-	// identically and make them indistinguishable in entitlement search.
+	// DisplayName is left unset on purpose: the SDK substitutes the group's
+	// own name only when the template leaves it empty, so a constant here
+	// would render every group's entitlement identically and make them
+	// indistinguishable in entitlement search. Description has no such
+	// downside — it is not what tells entitlements apart — and the resource
+	// carries no description for the SDK to fall back to, so it is set here.
 	options := []ent.EntitlementOption{
 		ent.WithGrantableTo(userResourceType),
+		ent.WithDescription("Member of this Cloudflare Access group"),
 	}
 
 	return []*v2.Entitlement{ent.NewAssignmentEntitlement(tmplResource, memberRole, options...)}, nil, nil
@@ -166,20 +169,27 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 				zap.Strings("skipped_rules", skipped),
 			)
 		}
-		if skipped := unresolvableIdentityRules(group.Include); len(skipped) > 0 {
-			if !hasEvaluableRule(directIncludeRules) {
-				ctxzap.Extract(ctx).Debug(
-					"baton-cloudflare-zero-trust: no Include rule on this group can be evaluated, so it reports no members; its membership is not visible to C1",
-					zap.String("group_id", group.ID),
-					zap.Strings("skipped_rules", skipped),
-				)
-			} else {
-				ctxzap.Extract(ctx).Debug(
-					"baton-cloudflare-zero-trust: some Include rules name identities this connector cannot resolve and were skipped; members admitted only by those rules are not reported",
-					zap.String("group_id", group.ID),
-					zap.Strings("skipped_rules", skipped),
-				)
-			}
+		// A group with nothing evaluable in Include reports no members, which
+		// reads in an access review as "nobody has access". Keyed off the
+		// direct rules and the nested-group IDs rather than the raw Include
+		// list: a nested-group rule is not evaluated here either, but the
+		// expandable grant below does make that membership visible, so a group
+		// carrying one is not silent. The check is independent of
+		// unresolvableIdentityRules, since a purely contextual Include (an
+		// "anyone from the US" group, say) reports nobody too and has no
+		// unresolvable identity rule to report.
+		if !hasEvaluableRule(directIncludeRules) && len(nestedGroupIDs) == 0 {
+			ctxzap.Extract(ctx).Debug(
+				"baton-cloudflare-zero-trust: no Include rule on this group can be evaluated, so it reports no members; its membership is not visible to C1",
+				zap.String("group_id", group.ID),
+				zap.Strings("include_rules", describeRuleList(group.Include)),
+			)
+		} else if skipped := unresolvableIdentityRules(group.Include); len(skipped) > 0 {
+			ctxzap.Extract(ctx).Debug(
+				"baton-cloudflare-zero-trust: some Include rules name identities this connector cannot resolve and were skipped; members admitted only by those rules are not reported",
+				zap.String("group_id", group.ID),
+				zap.Strings("skipped_rules", skipped),
+			)
 		}
 		if skipped := unresolvableIdentityRules(group.Exclude); len(skipped) > 0 {
 			ctxzap.Extract(ctx).Debug(
@@ -340,6 +350,18 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
 	case revokeRemoveRule:
 		// Fall through to the update below.
+	}
+
+	// Cloudflare rejects a group with an empty Include list, so removing the
+	// last rule cannot be done through an update. Reported as a precondition
+	// naming the cause, rather than letting the API error surface as an
+	// opaque failure on an otherwise ordinary revoke.
+	if len(include) == 0 {
+		return nil, status.Errorf(
+			codes.FailedPrecondition,
+			"baton-cloudflare-zero-trust: removing %s would leave this group with no Include rules, which Cloudflare rejects; delete or edit the group in Cloudflare instead",
+			email,
+		)
 	}
 
 	if err := g.updateAccessGroupInclude(ctx, &group, include); err != nil {

@@ -148,6 +148,17 @@ func TestRevokeDecision(t *testing.T) {
 			require.Equal(t, tt.want, got)
 		})
 	}
+
+	// Cloudflare rejects a group with an empty Include list, so Revoke guards
+	// on the filtered list being empty. This pins the case that reaches it.
+	t.Run("revoking the only member empties the include list", func(t *testing.T) {
+		grp := cloudflare.AccessGroup{Include: []interface{}{emailRule(email)}}
+
+		include, got := revokeDecision(&grp, email)
+
+		require.Equal(t, revokeRemoveRule, got)
+		require.Empty(t, include, "the guard in Revoke refuses rather than PUT an empty include")
+	})
 }
 
 // TestHasEvaluableRule covers the guard behind the "this group reports no

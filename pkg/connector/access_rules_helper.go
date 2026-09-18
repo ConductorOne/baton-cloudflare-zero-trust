@@ -239,6 +239,16 @@ func unresolvableIdentityRules(rules []interface{}) []string {
 	return described
 }
 
+// describeRuleList renders rules as plain strings for a log field, where
+// describeAccessRules' []interface{} return shape is not wanted.
+func describeRuleList(rules []interface{}) []string {
+	described := make([]string, 0, len(rules))
+	for _, rule := range rules {
+		described = append(described, describeAccessRule(rule))
+	}
+	return described
+}
+
 // describeAccessRules renders a group's Include/Require/Exclude rules as
 // short human-readable strings for the group's resource profile, so
 // customers can see how a group is configured without pulling the raw
