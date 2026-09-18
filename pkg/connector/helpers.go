@@ -113,8 +113,11 @@ func getEmailFromUserTrait(resource *v2.Resource) (string, error) {
 		}
 	}
 
+	// An absent profile field reads as ("", nil), so the value has to be
+	// checked as well as the error: returning an empty address here would let
+	// a caller write an Include rule naming nobody.
 	email, err := getValueFromUserTrait(resource, "email")
-	if err == nil {
+	if err == nil && email != "" {
 		return email, nil
 	}
 

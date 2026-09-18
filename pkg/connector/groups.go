@@ -91,14 +91,18 @@ func (g *groupBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.Sync
 func (g *groupBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	tmplResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id}}
 
-	// DisplayName is left unset on purpose: the SDK substitutes the group's
-	// own name only when the template leaves it empty, so a constant here
-	// would render every group's entitlement identically and make them
-	// indistinguishable in entitlement search. Description has no such
-	// downside — it is not what tells entitlements apart — and the resource
-	// carries no description for the SDK to fall back to, so it is set here.
+	// DisplayName is explicitly cleared, not merely left out:
+	// NewAssignmentEntitlement defaults it to the slug, and the SDK
+	// substitutes the group's own name only when the template's is empty. Left
+	// at the default, every group's entitlement would render as "member" with
+	// nothing to tell them apart in entitlement search.
+	//
+	// Description keeps a constant. It is not what distinguishes entitlements,
+	// and the group resource carries no description for the SDK to fall back
+	// to, so clearing this one would just leave it blank.
 	options := []ent.EntitlementOption{
 		ent.WithGrantableTo(userResourceType),
+		ent.WithDisplayName(""),
 		ent.WithDescription("Member of this Cloudflare Access group"),
 	}
 

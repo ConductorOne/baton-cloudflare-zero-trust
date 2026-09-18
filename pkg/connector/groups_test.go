@@ -1,9 +1,11 @@
 package connector
 
 import (
+	"context"
 	"testing"
 
 	"github.com/cloudflare/cloudflare-go"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 )
 
@@ -263,4 +265,37 @@ func TestIsMember(t *testing.T) {
 			require.Equal(t, tt.want, isMember(&tt.group, tt.group.Include, user))
 		})
 	}
+}
+
+// TestStaticEntitlementTemplate pins the two template fields the SDK's
+// per-resource expansion depends on. NewAssignmentEntitlement defaults
+// DisplayName to the slug, and syncStaticEntitlementsForResourceType
+// substitutes the group's own name only when the template's is empty — so
+// leaving the option off, rather than clearing it, makes every group's
+// entitlement render as "member".
+func TestStaticEntitlementTemplate(t *testing.T) {
+	g := &groupBuilder{resourceType: groupResourceType}
+
+	ents, _, err := g.StaticEntitlements(context.Background(), rs.SyncOpAttrs{})
+	require.NoError(t, err)
+	require.Len(t, ents, 1)
+
+	require.Empty(t, ents[0].GetDisplayName(),
+		"must be empty so the SDK substitutes each group's own name")
+	require.NotEmpty(t, ents[0].GetDescription(),
+		"the group resource carries no description to fall back to")
+	require.Equal(t, memberRole, ents[0].GetSlug())
+}
+
+// TestGetEmailFromUserTrait_EmptyProfileValue covers the path where the
+// profile has no email field: an absent value reads as ("", nil), and
+// returning it would let Grant write an Include rule naming nobody.
+func TestGetEmailFromUserTrait_EmptyProfileValue(t *testing.T) {
+	resource, err := rs.NewUserResource("no-email-here", userResourceType, "u1", nil)
+	require.NoError(t, err)
+
+	email, err := getEmailFromUserTrait(resource)
+
+	require.Error(t, err, "an unresolvable address must be an error, not an empty string")
+	require.Empty(t, email)
 }
