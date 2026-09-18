@@ -56,9 +56,12 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 		rs.WithEmail(user.Email, true),
 	}
 
+	// No status is set here on purpose. Cloudflare does not report one for
+	// these users, and NewUserTrait defaults the trait to enabled; pinning the
+	// resource to any value would stop syncUserTraitToResource copying that
+	// default across, leaving the trait and the resource disagreeing.
 	resourceOpts := []rs.ResourceOption{
 		rs.WithResourceProfile(profile),
-		rs.WithResourceStatus(v2.Status_RESOURCE_STATUS_UNSPECIFIED, ""),
 	}
 
 	if user.LastSuccessfulLogin != "" {
@@ -125,7 +128,6 @@ func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, e
 		member.User.ID,
 		userTraits,
 		rs.WithResourceProfile(profile),
-		rs.WithResourceStatus(v2.Status_RESOURCE_STATUS_UNSPECIFIED, ""),
 	)
 }
 
