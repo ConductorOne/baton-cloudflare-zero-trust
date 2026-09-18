@@ -56,10 +56,12 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 		rs.WithEmail(user.Email, true),
 	}
 
-	// No status is set here on purpose. Cloudflare does not report one for
-	// these users, and NewUserTrait defaults the trait to enabled; pinning the
-	// resource to any value would stop syncUserTraitToResource copying that
-	// default across, leaving the trait and the resource disagreeing.
+	// No status is set here on purpose: cloudflare.AccessUser carries no
+	// status field, so there is nothing to report. NewUserTrait defaults the
+	// trait to enabled, and syncUserTraitToResource copies that across only
+	// while the resource has no status of its own — pinning one here would
+	// leave the trait and the resource disagreeing. Account members do have a
+	// status; see newUserResourceFromMember.
 	resourceOpts := []rs.ResourceOption{
 		rs.WithResourceProfile(profile),
 	}
@@ -128,7 +130,25 @@ func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, e
 		member.User.ID,
 		userTraits,
 		rs.WithResourceProfile(profile),
+		rs.WithResourceStatus(accountMemberStatus(member.Status), ""),
 	)
+}
+
+// accountMemberStatus maps an account member's invitation state onto a
+// resource status. Cloudflare reports "accepted" once the invite is taken up
+// and "pending" until then; without this an unaccepted member would inherit
+// the trait's enabled default and be reported as an active user.
+func accountMemberStatus(status string) v2.Status_ResourceStatus {
+	switch strings.ToLower(status) {
+	case "accepted":
+		return v2.Status_RESOURCE_STATUS_ENABLED
+	case "pending":
+		return v2.Status_RESOURCE_STATUS_PENDING
+	default:
+		// An unrecognized value is not evidence of anything, so it is left
+		// unspecified rather than guessed at in either direction.
+		return v2.Status_RESOURCE_STATUS_UNSPECIFIED
+	}
 }
 
 // List returns all the users from both the Access users and account members
