@@ -102,9 +102,11 @@ func (r *roleBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncO
 }
 
 func (r *roleBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	// DisplayName is cleared so the SDK names each entitlement after its own
+	// role; a constant would render all of Cloudflare's roles identically.
 	assignment := ent.NewAssignmentEntitlement(nil, roleAssignmentEntitlement,
 		ent.WithGrantableTo(userResourceType),
-		ent.WithDisplayName("Assigned"),
+		ent.WithDisplayName(""),
 		ent.WithDescription("Assigned to the Cloudflare role"),
 	)
 
