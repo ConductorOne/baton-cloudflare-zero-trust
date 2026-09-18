@@ -122,6 +122,28 @@ not treated as restrictions, since they filter nothing. Affected groups are
 logged at sync time.
 </Warning>
 
+### Granting and revoking group membership
+
+C1 adds a member to an Access group by appending an `email` rule to the
+group's `Include` list, and removes one by deleting that rule. Everything
+else about the group — its name and its `Require` and `Exclude` rules — is
+written back unchanged.
+
+Because membership is expressed as rules rather than as a member list, some
+requests cannot be carried out, and the connector refuses them rather than
+reporting a change it did not make:
+
+| Request | Result |
+| :--- | :--- |
+| Grant to someone a `Require` or `Exclude` rule keeps out | **Refused.** The rule would be written but would grant nothing, and C1 would never hold the grant, so the rule would stay in your policy unnoticed. |
+| Grant to someone already admitted by a broad rule (`everyone`, `email_domain`) | **No change.** They already have access, and adding a rule naming them would only leave a redundant one behind. |
+| Revoke from someone whose access comes from a broad rule | **Refused.** That rule governs other members too, so it cannot be edited on one person's behalf. Change it in Cloudflare instead. |
+| Revoke the last `email` rule in a group's `Include` list | **Refused.** Cloudflare rejects a group with an empty `Include` list. Delete or edit the group in Cloudflare instead. |
+| Revoke from someone who is not a member | **No change.** |
+
+Membership that comes from a nested Access group cannot be revoked here
+either: the member belongs to the referenced group, not to this one.
+
 ## Gather Cloudflare Zero Trust credentials
 
 Configuring the connector requires you to pass in credentials generated in Cloudflare Zero Trust. Gather these credentials before you move on.

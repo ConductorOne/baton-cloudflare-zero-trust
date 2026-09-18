@@ -173,13 +173,25 @@ func hasEvaluableRule(rules []interface{}) bool {
 	return false
 }
 
-// stillAMember reports whether a user would remain a member of a group once
-// include replaces its Include list. Require and Exclude are applied too: a
-// user matched by a broad Include rule but blocked by Require or Exclude is
-// not a member, and telling an operator to go edit that Include rule would
-// send them after a rule that is not granting anything.
-func stillAMember(grp *cloudflare.AccessGroup, include []interface{}, user cloudflare.AccessUser) bool {
-	return anyRuleMatches(include, user) && satisfiesRequireExclude(grp, user)
+// matchesDirectRules is the single definition of membership this connector
+// works from: an Include rule must admit the user and Require/Exclude must not
+// keep them out. Grants() calls it per member with the split rules it already
+// computed; isMember is the convenience form for callers holding a raw Include
+// list.
+//
+// Nested-group Include rules are deliberately outside this question. They are
+// resolved by C1's graph expansion rather than here, so a user who is a member
+// only through nesting is invisible to it.
+func matchesDirectRules(grp *cloudflare.AccessGroup, directInclude []interface{}, user cloudflare.AccessUser) bool {
+	return anyRuleMatches(directInclude, user) && satisfiesRequireExclude(grp, user)
+}
+
+// isMember reports whether the rules this connector can evaluate admit user to
+// grp, considering include as its Include list. Passing a filtered list
+// answers "would they still be a member if these rules were written".
+func isMember(grp *cloudflare.AccessGroup, include []interface{}, user cloudflare.AccessUser) bool {
+	direct, _ := splitIncludeRules(include)
+	return matchesDirectRules(grp, direct, user)
 }
 
 // splitIncludeRules separates a group's Include rules into direct,
@@ -239,16 +251,6 @@ func unresolvableIdentityRules(rules []interface{}) []string {
 	return described
 }
 
-// describeRuleList renders rules as plain strings for a log field, where
-// describeAccessRules' []interface{} return shape is not wanted.
-func describeRuleList(rules []interface{}) []string {
-	described := make([]string, 0, len(rules))
-	for _, rule := range rules {
-		described = append(described, describeAccessRule(rule))
-	}
-	return described
-}
-
 // describeAccessRules renders a group's Include/Require/Exclude rules as
 // short human-readable strings for the group's resource profile, so
 // customers can see how a group is configured without pulling the raw
@@ -256,6 +258,16 @@ func describeRuleList(rules []interface{}) []string {
 // type structpb.NewStruct accepts for a profile field.
 func describeAccessRules(rules []interface{}) []interface{} {
 	described := make([]interface{}, 0, len(rules))
+	for _, rule := range describeRuleList(rules) {
+		described = append(described, rule)
+	}
+	return described
+}
+
+// describeRuleList renders rules for a log field, where describeAccessRules'
+// []interface{} shape is not wanted.
+func describeRuleList(rules []interface{}) []string {
+	described := make([]string, 0, len(rules))
 	for _, rule := range rules {
 		described = append(described, describeAccessRule(rule))
 	}

@@ -149,6 +149,29 @@ func TestRevokeDecision(t *testing.T) {
 		})
 	}
 
+	t.Run("their own email rule but Require keeps them out", func(t *testing.T) {
+		grp := cloudflare.AccessGroup{
+			Include: []interface{}{emailRule(email)},
+			Require: []interface{}{emailDomainRule("corp.com")},
+		}
+
+		_, got := revokeDecision(&grp, email)
+
+		require.Equal(t, revokeNotAMember, got,
+			"a rule naming someone Require keeps out is not granting them anything, so there is nothing to revoke")
+	})
+
+	t.Run("their own email rule but Exclude keeps them out", func(t *testing.T) {
+		grp := cloudflare.AccessGroup{
+			Include: []interface{}{emailRule(email)},
+			Exclude: []interface{}{emailRule(email)},
+		}
+
+		_, got := revokeDecision(&grp, email)
+
+		require.Equal(t, revokeNotAMember, got)
+	})
+
 	// Cloudflare rejects a group with an empty Include list, so Revoke guards
 	// on the filtered list being empty. This pins the case that reaches it.
 	t.Run("revoking the only member empties the include list", func(t *testing.T) {
@@ -170,4 +193,74 @@ func TestHasEvaluableRule(t *testing.T) {
 	require.False(t, hasEvaluableRule([]interface{}{geoRule("US"), groupRule("eng")}))
 	require.False(t, hasEvaluableRule([]interface{}{map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}}}))
 	require.False(t, hasEvaluableRule(nil))
+}
+
+// TestIsMember pins the shared membership predicate that Grants, Grant and
+// Revoke all work from. Grant depends on it to report GrantAlreadyExists for
+// someone already admitted by a broad rule, rather than writing a redundant
+// rule that would then block their revoke.
+func TestIsMember(t *testing.T) {
+	const email = "jane@x.com"
+	user := cloudflare.AccessUser{Email: email}
+
+	tests := []struct {
+		name  string
+		group cloudflare.AccessGroup
+		want  bool
+	}{
+		{
+			name:  "named directly",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email)}},
+			want:  true,
+		},
+		{
+			name:  "admitted by everyone without a rule of their own",
+			group: cloudflare.AccessGroup{Include: []interface{}{everyoneRule()}},
+			want:  true,
+		},
+		{
+			name:  "admitted by their email domain",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailDomainRule("x.com")}},
+			want:  true,
+		},
+		{
+			name: "named directly but excluded",
+			group: cloudflare.AccessGroup{
+				Include: []interface{}{emailRule(email)},
+				Exclude: []interface{}{emailRule(email)},
+			},
+			want: false,
+		},
+		{
+			name: "named directly but fails Require",
+			group: cloudflare.AccessGroup{
+				Include: []interface{}{emailRule(email)},
+				Require: []interface{}{emailDomainRule("corp.com")},
+			},
+			want: false,
+		},
+		{
+			name:  "not named at all",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule("other@x.com")}},
+			want:  false,
+		},
+		{
+			// Nesting is resolved by C1 graph expansion, not here, so this
+			// predicate cannot see membership that comes only through it.
+			name:  "member only through a nested group is not visible here",
+			group: cloudflare.AccessGroup{Include: []interface{}{groupRule("eng")}},
+			want:  false,
+		},
+		{
+			name:  "an unevaluable Require does not keep them out",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email)}, Require: []interface{}{geoRule("US")}},
+			want:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isMember(&tt.group, tt.group.Include, user))
+		})
+	}
 }

@@ -140,6 +140,15 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	}
 
 	for _, memberUser := range memberUsers {
+		if memberUser.User.ID == "" {
+			// A pending invite has no native Cloudflare user ID yet, and
+			// userBuilder.List skips it for the same reason. Its email is
+			// populated, so it would otherwise match an everyone or
+			// email_domain rule and produce a grant whose principal was never
+			// synced — and every such grant would share one ID.
+			continue
+		}
+
 		accUser := cloudflare.AccessUser{
 			ID:    memberUser.User.ID,
 			Name:  fmt.Sprintf("%s %s", memberUser.User.FirstName, memberUser.User.LastName),
@@ -184,7 +193,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 				zap.String("group_id", group.ID),
 				zap.Strings("include_rules", describeRuleList(group.Include)),
 			)
-		} else if skipped := unresolvableIdentityRules(group.Include); len(skipped) > 0 {
+		} else if skipped := unresolvableIdentityRules(directIncludeRules); len(skipped) > 0 {
 			ctxzap.Extract(ctx).Debug(
 				"baton-cloudflare-zero-trust: some Include rules name identities this connector cannot resolve and were skipped; members admitted only by those rules are not reported",
 				zap.String("group_id", group.ID),
@@ -201,10 +210,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	}
 
 	for _, user := range users {
-		if !anyRuleMatches(directIncludeRules, user) {
-			continue
-		}
-		if !satisfiesRequireExclude(&group, user) {
+		if !matchesDirectRules(&group, directIncludeRules, user) {
 			continue
 		}
 
@@ -285,23 +291,27 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 		return nil, wrapError(err, "failed to get access group")
 	}
 
-	// Exclude overrides Include, so adding an Include rule for someone the
-	// group excludes would not grant them access: Grants() would refuse to
-	// emit the grant and the next sync would drop it again. Checked before
-	// the already-present check, since a principal who is both named in
-	// Include and excluded does not have access either.
-	if !satisfiesRequireExclude(&group, cloudflare.AccessUser{Email: email}) {
+	user := cloudflare.AccessUser{Email: email}
+
+	// Already a member is the question, not whether a rule names them
+	// specifically: on a group admitting everyone, or their email domain, they
+	// have access without a rule of their own and adding one would change
+	// nothing except leaving a redundant rule that later blocks their revoke.
+	if isMember(&group, group.Include, user) {
+		return annotations.New(&v2.GrantAlreadyExists{}), nil
+	}
+
+	// Require and Exclude override Include, so adding an Include rule for
+	// someone those lists keep out would not grant access: Grants() would
+	// refuse to emit the grant, the next sync would drop it, and because C1
+	// never held a grant it would never issue a revoke — leaving the rule in
+	// the customer's policy for good.
+	if !satisfiesRequireExclude(&group, user) {
 		return nil, status.Errorf(
 			codes.FailedPrecondition,
 			"baton-cloudflare-zero-trust: a Require or Exclude rule on this group keeps %s out, so adding them to Include would not grant access; change that rule in Cloudflare first",
 			email,
 		)
-	}
-
-	for _, rule := range group.Include {
-		if ruleEmail, ok := includeRuleEmail(rule); ok && strings.EqualFold(ruleEmail, email) {
-			return annotations.New(&v2.GrantAlreadyExists{}), nil
-		}
 	}
 
 	include := append(append([]interface{}{}, group.Include...),
@@ -395,17 +405,25 @@ const (
 // those lists keep out is reported as not a member rather than sending an
 // operator after an Include rule that is not granting them anything.
 func revokeDecision(grp *cloudflare.AccessGroup, email string) ([]interface{}, revokeOutcome) {
-	include, found := filterIncludeEmail(grp.Include, email)
 	user := cloudflare.AccessUser{Email: email}
 
-	switch {
-	case stillAMember(grp, include, user):
-		return include, revokeBlocked
-	case !found:
-		return include, revokeNotAMember
-	default:
-		return include, revokeRemoveRule
+	// Nothing to revoke if the rules this connector evaluates do not admit
+	// them in the first place. Checked before anything else: a user kept out
+	// by Require or Exclude can still have an Include rule naming them, and
+	// removing it would be editing a rule that grants them nothing.
+	if !isMember(grp, grp.Include, user) {
+		return nil, revokeNotAMember
 	}
+
+	include, found := filterIncludeEmail(grp.Include, email)
+
+	// Membership that survives without a rule naming this address comes from
+	// one governing other members too, which cannot be edited on their behalf.
+	if !found || isMember(grp, include, user) {
+		return include, revokeBlocked
+	}
+
+	return include, revokeRemoveRule
 }
 
 // filterIncludeEmail rebuilds a group's Include list without the rule naming
