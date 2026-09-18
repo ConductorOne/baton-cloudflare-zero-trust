@@ -128,13 +128,6 @@ func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, e
 		rs.WithResourceProfile(profile),
 	}
 
-	// Only set a status when Cloudflare reported one this connector
-	// understands. WithResourceStatus writes the field unconditionally, even
-	// for the unspecified value, and NewUserResource applies the trait after
-	// the resource options — so passing unspecified would make HasStatus true,
-	// block syncUserTraitToResource, and leave the trait reading enabled while
-	// the resource reads unspecified. Omitting the option instead lets the
-	// trait default carry through to both.
 	if status, ok := accountMemberStatus(member.Status); ok {
 		resourceOpts = append(resourceOpts, rs.WithResourceStatus(status, ""))
 	}
