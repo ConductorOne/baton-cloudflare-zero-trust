@@ -3,6 +3,7 @@ package connector
 import (
 	"testing"
 
+	"github.com/cloudflare/cloudflare-go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,71 +80,83 @@ func TestFilterIncludeEmail(t *testing.T) {
 	})
 }
 
-// TestRevokeDecision pins the fork Revoke takes after filtering: a revoke is
-// only reported as done when nothing left in Include still admits the user.
-// The logic is pure over group.Include, so it is exercised here directly
-// rather than through a stubbed Cloudflare client.
+// TestRevokeDecision drives the production decision function, so the ordering
+// between the still-a-member check and the not-found case is pinned here
+// rather than restated.
 func TestRevokeDecision(t *testing.T) {
 	const email = "jane@x.com"
 
-	type outcome string
-	const (
-		revoked     outcome = "revoked"
-		refused     outcome = "refused"
-		alreadyGone outcome = "already revoked"
-	)
-
-	decide := func(rules []interface{}) outcome {
-		include, found := filterIncludeEmail(rules, email)
-		if anyRuleMatches(include, user(email)) {
-			return refused
-		}
-		if !found {
-			return alreadyGone
-		}
-		return revoked
-	}
-
 	tests := []struct {
-		name    string
-		include []interface{}
-		want    outcome
+		name  string
+		group cloudflare.AccessGroup
+		want  revokeOutcome
 	}{
 		{
-			name:    "own email rule is the only source of membership",
-			include: []interface{}{emailRule(email), emailRule("other@x.com")},
-			want:    revoked,
+			name:  "own email rule is the only source of membership",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), emailRule("other@x.com")}},
+			want:  revokeRemoveRule,
 		},
 		{
-			name:    "email rule alongside a domain rule that still admits them",
-			include: []interface{}{emailRule(email), emailDomainRule("x.com")},
-			want:    refused,
+			name:  "email rule alongside a domain rule that still admits them",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), emailDomainRule("x.com")}},
+			want:  revokeBlocked,
 		},
 		{
-			name:    "email rule alongside an everyone rule",
-			include: []interface{}{emailRule(email), everyoneRule()},
-			want:    refused,
+			name:  "email rule alongside an everyone rule",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), everyoneRule()}},
+			want:  revokeBlocked,
 		},
 		{
-			name:    "membership comes only from a domain rule",
-			include: []interface{}{emailDomainRule("x.com")},
-			want:    refused,
+			name:  "membership comes only from a domain rule",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailDomainRule("x.com")}},
+			want:  revokeBlocked,
 		},
 		{
-			name:    "no rule admits them",
-			include: []interface{}{emailRule("other@x.com"), emailDomainRule("y.com")},
-			want:    alreadyGone,
+			name:  "no rule admits them",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule("other@x.com"), emailDomainRule("y.com")}},
+			want:  revokeNotAMember,
 		},
 		{
-			name:    "a nested group rule is not evaluated, so it does not block the revoke",
-			include: []interface{}{emailRule(email), groupRule("eng")},
-			want:    revoked,
+			name:  "a nested group rule is not evaluated, so it does not block the revoke",
+			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), groupRule("eng")}},
+			want:  revokeRemoveRule,
+		},
+		{
+			// Without applying Exclude, a broad Include rule would report
+			// this user as still a member and send the operator after a rule
+			// that is not granting them anything.
+			name: "a broad Include rule the user is excluded from",
+			group: cloudflare.AccessGroup{
+				Include: []interface{}{emailDomainRule("x.com")},
+				Exclude: []interface{}{emailRule(email)},
+			},
+			want: revokeNotAMember,
+		},
+		{
+			name: "a broad Include rule the user fails Require for",
+			group: cloudflare.AccessGroup{
+				Include: []interface{}{everyoneRule()},
+				Require: []interface{}{emailDomainRule("corp.com")},
+			},
+			want: revokeNotAMember,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, decide(tt.include))
+			_, got := revokeDecision(&tt.group, email)
+			require.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// TestHasEvaluableRule covers the guard behind the "this group reports no
+// members" log: an Include list with nothing evaluable cannot be decided, and
+// the empty result is a gap rather than an answer.
+func TestHasEvaluableRule(t *testing.T) {
+	require.True(t, hasEvaluableRule([]interface{}{geoRule("US"), emailRule("a@x.com")}))
+	require.True(t, hasEvaluableRule([]interface{}{everyoneRule()}))
+	require.False(t, hasEvaluableRule([]interface{}{geoRule("US"), groupRule("eng")}))
+	require.False(t, hasEvaluableRule([]interface{}{map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}}}))
+	require.False(t, hasEvaluableRule(nil))
 }

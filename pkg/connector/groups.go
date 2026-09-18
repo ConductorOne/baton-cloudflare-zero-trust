@@ -91,10 +91,12 @@ func (g *groupBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.Sync
 func (g *groupBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	tmplResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id}}
 
+	// DisplayName and Description are left unset on purpose: the SDK only
+	// substitutes the group's own name when the template leaves them empty,
+	// so setting a constant here would render every group's entitlement
+	// identically and make them indistinguishable in entitlement search.
 	options := []ent.EntitlementOption{
 		ent.WithGrantableTo(userResourceType),
-		ent.WithDisplayName(fmt.Sprintf("Group %s", memberRole)),
-		ent.WithDescription(fmt.Sprintf("%s of Cloudflare group", memberRole)),
 	}
 
 	return []*v2.Entitlement{ent.NewAssignmentEntitlement(tmplResource, memberRole, options...)}, nil, nil
@@ -164,6 +166,21 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 				zap.Strings("skipped_rules", skipped),
 			)
 		}
+		if skipped := unresolvableIdentityRules(group.Include); len(skipped) > 0 {
+			if !hasEvaluableRule(directIncludeRules) {
+				ctxzap.Extract(ctx).Debug(
+					"baton-cloudflare-zero-trust: no Include rule on this group can be evaluated, so it reports no members; its membership is not visible to C1",
+					zap.String("group_id", group.ID),
+					zap.Strings("skipped_rules", skipped),
+				)
+			} else {
+				ctxzap.Extract(ctx).Debug(
+					"baton-cloudflare-zero-trust: some Include rules name identities this connector cannot resolve and were skipped; members admitted only by those rules are not reported",
+					zap.String("group_id", group.ID),
+					zap.Strings("skipped_rules", skipped),
+				)
+			}
+		}
 		if skipped := unresolvableIdentityRules(group.Exclude); len(skipped) > 0 {
 			ctxzap.Extract(ctx).Debug(
 				"baton-cloudflare-zero-trust: group Exclude rules name identities this connector cannot resolve and were skipped; members they should exclude may still be granted",
@@ -230,7 +247,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 
 	nextPage, err := bag.NextToken(strconv.Itoa(page + 1))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, wrapError(err, "failed to build next page token")
 	}
 
 	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
@@ -263,10 +280,10 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	// emit the grant and the next sync would drop it again. Checked before
 	// the already-present check, since a principal who is both named in
 	// Include and excluded does not have access either.
-	if anyRuleMatches(group.Exclude, cloudflare.AccessUser{Email: email}) {
+	if !satisfiesRequireExclude(&group, cloudflare.AccessUser{Email: email}) {
 		return nil, status.Errorf(
 			codes.FailedPrecondition,
-			"baton-cloudflare-zero-trust: an Exclude rule on this group blocks %s, so adding them to Include would not grant access; remove that rule in Cloudflare first",
+			"baton-cloudflare-zero-trust: a Require or Exclude rule on this group keeps %s out, so adding them to Include would not grant access; change that rule in Cloudflare first",
 			email,
 		)
 	}
@@ -311,25 +328,18 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 		return nil, wrapError(err, "failed to get access group")
 	}
 
-	include, found := filterIncludeEmail(group.Include, email)
-
-	// Dropping the rule that names this address is only a revoke if nothing
-	// else in Include still admits them. An email_domain or everyone rule
-	// governs other members too, so it cannot be edited on one person's
-	// behalf; reporting success here would claim a removal that did not
-	// happen and that the next sync would undo. Tested against the filtered
-	// list, so it catches both a membership that never had its own email rule
-	// and one that had a redundant rule alongside a broader one.
-	if anyRuleMatches(include, cloudflare.AccessUser{Email: email}) {
+	include, decision := revokeDecision(&group, email)
+	switch decision {
+	case revokeBlocked:
 		return nil, status.Errorf(
 			codes.FailedPrecondition,
 			"baton-cloudflare-zero-trust: %s remains a member of this group through a rule that names more than one user; remove that rule in Cloudflare instead",
 			email,
 		)
-	}
-
-	if !found {
+	case revokeNotAMember:
 		return annotations.New(&v2.GrantAlreadyRevoked{}), nil
+	case revokeRemoveRule:
+		// Fall through to the update below.
 	}
 
 	if err := g.updateAccessGroupInclude(ctx, &group, include); err != nil {
@@ -337,6 +347,43 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 	}
 
 	return nil, nil
+}
+
+// revokeOutcome is what Revoke can do about a membership.
+type revokeOutcome int
+
+const (
+	// revokeRemoveRule: an Include rule names this address and nothing else
+	// admits them, so dropping that rule revokes the membership.
+	revokeRemoveRule revokeOutcome = iota
+	// revokeBlocked: the user stays a member through a rule that names more
+	// than one person, which cannot be edited on their behalf.
+	revokeBlocked
+	// revokeNotAMember: no rule admits them, so there is nothing to revoke.
+	revokeNotAMember
+)
+
+// revokeDecision works out what Revoke can do about email's membership of grp,
+// and returns the Include list to write when the answer is revokeRemoveRule.
+//
+// Dropping the rule that names an address is only a revoke if nothing else
+// still admits them: an email_domain or everyone rule governs other members
+// too, so reporting success would claim a removal that did not happen and that
+// the next sync would undo. Require and Exclude are applied as well, so a user
+// those lists keep out is reported as not a member rather than sending an
+// operator after an Include rule that is not granting them anything.
+func revokeDecision(grp *cloudflare.AccessGroup, email string) ([]interface{}, revokeOutcome) {
+	include, found := filterIncludeEmail(grp.Include, email)
+	user := cloudflare.AccessUser{Email: email}
+
+	switch {
+	case stillAMember(grp, include, user):
+		return include, revokeBlocked
+	case !found:
+		return include, revokeNotAMember
+	default:
+		return include, revokeRemoveRule
+	}
 }
 
 // filterIncludeEmail rebuilds a group's Include list without the rule naming

@@ -45,7 +45,7 @@ evaluate are **skipped** rather than treated as non-matching:
 | `email`, `email_domain`, `everyone` | Yes | Fully enforced in all three lists. |
 | `group` (nested Access group) | In `Include` only | Reported as an expandable grant — see below. |
 | `ip`, `ip_list`, `geo`, `certificate`, `device_posture`, `auth_method`, `login_method`, `auth_context`, `external_evaluation` | No | None, by design. |
-| `email_list`, IdP group claims (`okta`, `gsuite`, `saml`, ...), service tokens | No | May over-report — see below. |
+| `email_list`, IdP group claims (`okta`, `gsuite`, `saml`, ...), service tokens | No | May over- or under-report — see below. |
 
 ### Why skipped rules do not narrow membership
 
@@ -58,6 +58,21 @@ This matters most for `Require`. If a skipped rule were treated as "does not
 match", a single one would make the whole AND fail and the group would report
 **no members at all**. A group with `Include: email` and `Require: geo US`
 really does grant access to that user, and C1 reports it.
+
+<Warning>
+**A group whose `Include` list contains nothing this connector can evaluate
+reports no members at all.** `Include` is an OR, and its neutral element is
+"no match", so a list made up entirely of skipped rules — an IdP-group claim
+on its own, for example, which is a common Access setup — produces an empty
+result.
+
+That direction under-reports rather than over-reports, and an empty group in
+an access review reads as "nobody has access" rather than "this could not be
+determined". The connector cannot tell the difference, and inventing members
+would be worse, so it logs every group in this state at sync time and lists
+the group's rules on its resource profile. Check those groups in Cloudflare
+directly.
+</Warning>
 
 Contextual rules — country, IP range, mTLS certificate, device posture,
 authentication method — are never evaluated, and this is deliberate rather
@@ -76,7 +91,8 @@ this connector does not sync.
 
 Because they are skipped, a user who does not satisfy a `Require` rule — or
 who should be removed by an `Exclude` rule — may still be reported as a
-member of the group. Every group carrying such a rule is logged at sync
+member of the group. In `Include` the effect runs the other way: a member
+admitted only by such a rule is not reported at all. Every group carrying such a rule is logged at sync
 time, and its rules are listed on the group's profile in C1 under
 `include_rules` / `require_rules` / `exclude_rules`, so you can see exactly
 which conditions were not applied.

@@ -61,6 +61,7 @@ var contextualRuleKeys = map[string]bool{
 	"auth_context":        true,
 	"auth_method":         true,
 	"certificate":         true,
+	"common_name":         true,
 	"device_posture":      true,
 	"external_evaluation": true,
 	"geo":                 true,
@@ -157,6 +158,28 @@ func allRulesMatch(rules []interface{}, user cloudflare.AccessUser) bool {
 		}
 	}
 	return true
+}
+
+// hasEvaluableRule reports whether any rule in the list can be decided at all.
+// An Include list with none is the case where OR's neutral element stops being
+// harmless: with nothing to match, the group reports no members, which reads
+// in an access review as "nobody has access" rather than "we cannot tell".
+func hasEvaluableRule(rules []interface{}) bool {
+	for _, rule := range rules {
+		if isEvaluableRule(rule) {
+			return true
+		}
+	}
+	return false
+}
+
+// stillAMember reports whether a user would remain a member of a group once
+// include replaces its Include list. Require and Exclude are applied too: a
+// user matched by a broad Include rule but blocked by Require or Exclude is
+// not a member, and telling an operator to go edit that Include rule would
+// send them after a rule that is not granting anything.
+func stillAMember(grp *cloudflare.AccessGroup, include []interface{}, user cloudflare.AccessUser) bool {
+	return anyRuleMatches(include, user) && satisfiesRequireExclude(grp, user)
 }
 
 // splitIncludeRules separates a group's Include rules into direct,
