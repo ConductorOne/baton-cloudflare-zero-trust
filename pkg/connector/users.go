@@ -124,30 +124,43 @@ func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, e
 		rs.WithEmail(member.User.Email, true),
 	}
 
+	resourceOpts := []rs.ResourceOption{
+		rs.WithResourceProfile(profile),
+	}
+
+	// Only set a status when Cloudflare reported one this connector
+	// understands. WithResourceStatus writes the field unconditionally, even
+	// for the unspecified value, and NewUserResource applies the trait after
+	// the resource options — so passing unspecified would make HasStatus true,
+	// block syncUserTraitToResource, and leave the trait reading enabled while
+	// the resource reads unspecified. Omitting the option instead lets the
+	// trait default carry through to both.
+	if status, ok := accountMemberStatus(member.Status); ok {
+		resourceOpts = append(resourceOpts, rs.WithResourceStatus(status, ""))
+	}
+
 	return rs.NewUserResource(
 		displayName,
 		userResourceType,
 		member.User.ID,
 		userTraits,
-		rs.WithResourceProfile(profile),
-		rs.WithResourceStatus(accountMemberStatus(member.Status), ""),
+		resourceOpts...,
 	)
 }
 
 // accountMemberStatus maps an account member's invitation state onto a
-// resource status. Cloudflare reports "accepted" once the invite is taken up
-// and "pending" until then; without this an unaccepted member would inherit
-// the trait's enabled default and be reported as an active user.
-func accountMemberStatus(status string) v2.Status_ResourceStatus {
+// resource status, reporting false for a value it does not recognize.
+// Cloudflare reports "accepted" once the invite is taken up and "pending"
+// until then; without this an unaccepted member would inherit the trait's
+// enabled default and be reported as an active user.
+func accountMemberStatus(status string) (v2.Status_ResourceStatus, bool) {
 	switch strings.ToLower(status) {
 	case "accepted":
-		return v2.Status_RESOURCE_STATUS_ENABLED
+		return v2.Status_RESOURCE_STATUS_ENABLED, true
 	case "pending":
-		return v2.Status_RESOURCE_STATUS_PENDING
+		return v2.Status_RESOURCE_STATUS_PENDING, true
 	default:
-		// An unrecognized value is not evidence of anything, so it is left
-		// unspecified rather than guessed at in either direction.
-		return v2.Status_RESOURCE_STATUS_UNSPECIFIED
+		return v2.Status_RESOURCE_STATUS_UNSPECIFIED, false
 	}
 }
 

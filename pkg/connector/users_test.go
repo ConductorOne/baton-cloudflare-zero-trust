@@ -15,17 +15,24 @@ func TestAccountMemberStatus(t *testing.T) {
 		name   string
 		status string
 		want   v2.Status_ResourceStatus
+		wantOK bool
 	}{
-		{"accepted", "accepted", v2.Status_RESOURCE_STATUS_ENABLED},
-		{"pending", "pending", v2.Status_RESOURCE_STATUS_PENDING},
-		{"case insensitive", "Accepted", v2.Status_RESOURCE_STATUS_ENABLED},
-		{"unknown value is not guessed at", "something-else", v2.Status_RESOURCE_STATUS_UNSPECIFIED},
-		{"empty", "", v2.Status_RESOURCE_STATUS_UNSPECIFIED},
+		{"accepted", "accepted", v2.Status_RESOURCE_STATUS_ENABLED, true},
+		{"pending", "pending", v2.Status_RESOURCE_STATUS_PENDING, true},
+		{"case insensitive", "Accepted", v2.Status_RESOURCE_STATUS_ENABLED, true},
+		// An unrecognized value must report false, not the unspecified
+		// status: the caller omits the option entirely in that case, because
+		// setting unspecified would still count as setting a status and would
+		// stop the trait's default reaching the resource.
+		{"unknown value is not guessed at", "something-else", v2.Status_RESOURCE_STATUS_UNSPECIFIED, false},
+		{"empty", "", v2.Status_RESOURCE_STATUS_UNSPECIFIED, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, accountMemberStatus(tt.status))
+			got, ok := accountMemberStatus(tt.status)
+			require.Equal(t, tt.wantOK, ok)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
