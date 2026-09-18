@@ -56,12 +56,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 		rs.WithEmail(user.Email, true),
 	}
 
-	// No status is set here on purpose: cloudflare.AccessUser carries no
-	// status field, so there is nothing to report. NewUserTrait defaults the
-	// trait to enabled, and syncUserTraitToResource copies that across only
-	// while the resource has no status of its own — pinning one here would
-	// leave the trait and the resource disagreeing. Account members do have a
-	// status; see newUserResourceFromMember.
+	// cloudflare.AccessUser carries no status field, so none is set here.
 	resourceOpts := []rs.ResourceOption{
 		rs.WithResourceProfile(profile),
 	}
