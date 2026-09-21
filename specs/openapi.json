@@ -1,0 +1,612 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cloudflare API (baton-cloudflare-zero-trust connector surface)",
+    "version": "1.0.0",
+    "description": "Describes only the Cloudflare endpoints baton-cloudflare-zero-trust calls. This connector has no client.go of its own — it issues every request through the vendored cloudflare-go SDK, so scope was derived by enumerating the SDK call sites in pkg/connector/{users,groups,roles,connector}.go and resolving each to its path and payload in vendor/github.com/cloudflare/cloudflare-go (accessed 2026-09-21). Paths and response models below are quoted from that vendored source, which is the exact code that runs.\n\nEvery operation is account-scoped and takes its account ID from the `account-id` config field. Two auth modes are supported and are mutually exclusive in practice: an API token (bearer) or the legacy API key plus account email header pair.\n\nResponse envelope: every Cloudflare response wraps the payload as `{success, errors, messages, result}` and list responses add `result_info`. The SDK unwraps `result` before handing it back, but the envelope is on the wire and is modelled here.\n\nPagination: `page`/`per_page`. The connector drives it explicitly for access users and account members, passing its own page number from the sync pagination bag. For access groups, account roles and permission groups it passes empty params, which switches the SDK into auto-pagination — it drains every page internally at 25 per page and returns the full set in one call.\n\nNot in scope: this connector reads Cloudflare Access (Zero Trust) groups and users plus account members and roles. It does not call Access application, policy, or service-token endpoints."
+  },
+  "servers": [
+    {
+      "url": "{baseUrl}",
+      "description": "Cloudflare API v4. Overridable via the `base-url` config field.",
+      "variables": {
+        "baseUrl": { "default": "https://api.cloudflare.com/client/v4" }
+      }
+    }
+  ],
+  "security": [{ "apiToken": [] }, { "apiKey": [], "apiEmail": [] }],
+  "tags": [
+    { "name": "access", "description": "Cloudflare Access (Zero Trust) groups, users, and keys config." },
+    { "name": "members", "description": "Account members." },
+    { "name": "roles", "description": "Account roles and IAM permission groups." }
+  ],
+  "paths": {
+    "/accounts/{account_id}/access/keys": {
+      "get": {
+        "operationId": "getAccessKeysConfig",
+        "tags": ["access"],
+        "summary": "Get the Access key rotation configuration",
+        "description": "Used solely as the connector's credential-validation probe (pkg/connector/connector.go). None of the returned fields are synced — it is called for its status code.",
+        "parameters": [{ "$ref": "#/components/parameters/AccountId" }],
+        "responses": {
+          "200": {
+            "description": "Key rotation config.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Envelope" },
+                    {
+                      "type": "object",
+                      "properties": { "result": { "$ref": "#/components/schemas/AccessKeysConfig" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/access/groups": {
+      "get": {
+        "operationId": "listAccessGroups",
+        "tags": ["access"],
+        "summary": "List Access groups",
+        "description": "The connector passes empty params, so the SDK auto-paginates: it drains every page at 25 per page and returns the complete list in a single call. `page` and `per_page` are therefore emitted by the SDK, not chosen by the connector.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/access-groups-list-access-groups" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access groups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ListEnvelope" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "result": { "type": "array", "items": { "$ref": "#/components/schemas/AccessGroup" } }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/access/groups/{group_id}": {
+      "get": {
+        "operationId": "getAccessGroup",
+        "tags": ["access"],
+        "summary": "Get an Access group",
+        "description": "Re-read before every membership change so the rule lists sent on update are the current ones.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/access-groups-get-an-access-group" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/GroupId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access group.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Envelope" },
+                    {
+                      "type": "object",
+                      "properties": { "result": { "$ref": "#/components/schemas/AccessGroup" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateAccessGroup",
+        "tags": ["access"],
+        "summary": "Replace an Access group",
+        "description": "A full replace, not a patch. The connector only ever changes `include`, but it must resend `name`, `require` and `exclude` read back from getAccessGroup: the SDK's UpdateAccessGroupParams serialises all three without omitempty, so a body carrying only `include` would blank the name and clear both other rule lists.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/access-groups-update-an-access-group" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/GroupId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateAccessGroupRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated Access group.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Envelope" },
+                    {
+                      "type": "object",
+                      "properties": { "result": { "$ref": "#/components/schemas/AccessGroup" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/access/users": {
+      "get": {
+        "operationId": "listAccessUsers",
+        "tags": ["access"],
+        "summary": "List Access (Zero Trust) users",
+        "description": "Paged explicitly by the connector from its sync pagination bag; auto-pagination is off because a page number is supplied.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/zero-trust-users-get-users" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access users.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ListEnvelope" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "result": { "type": "array", "items": { "$ref": "#/components/schemas/AccessUser" } }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/members": {
+      "get": {
+        "operationId": "listAccountMembers",
+        "tags": ["members"],
+        "summary": "List account members",
+        "description": "Paged explicitly by the connector. Members whose `user.id` is empty are pending invites with no Cloudflare user ID assigned yet; the connector skips them in both the user sync and the group-membership match rather than minting an unstable ID.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/account-members-list-members" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account members.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ListEnvelope" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "result": { "type": "array", "items": { "$ref": "#/components/schemas/AccountMember" } }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/members/{member_id}": {
+      "get": {
+        "operationId": "getAccountMember",
+        "tags": ["members"],
+        "summary": "Get an account member",
+        "description": "Read before a role change so the member's existing roles or policies can be carried over into the replace body.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/account-members-member-details" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/MemberId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Envelope" },
+                    {
+                      "type": "object",
+                      "properties": { "result": { "$ref": "#/components/schemas/AccountMember" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateAccountMember",
+        "tags": ["members"],
+        "summary": "Replace an account member's roles or policies",
+        "description": "A full replace. The connector sends one of two mutually exclusive bodies: `roles` (the member's existing roles plus or minus the one being changed) for legacy role-based accounts, or `policies` (existing policies plus a new allow policy naming a permission group and the account resource group) for policy-based accounts. Whichever key is sent must already contain the full retained set.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/account-members-update-member" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/MemberId" }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateAccountMemberRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Envelope" },
+                    {
+                      "type": "object",
+                      "properties": { "result": { "$ref": "#/components/schemas/AccountMember" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/roles": {
+      "get": {
+        "operationId": "listAccountRoles",
+        "tags": ["roles"],
+        "summary": "List account roles",
+        "description": "Empty params, so the SDK auto-paginates and returns every role in one call.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/account-roles-list-roles" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/PerPage" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account roles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ListEnvelope" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "result": { "type": "array", "items": { "$ref": "#/components/schemas/AccountRole" } }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/roles/{role_id}": {
+      "get": {
+        "operationId": "getAccountRole",
+        "tags": ["roles"],
+        "summary": "Get an account role",
+        "description": "Read to recover the role's name, which is then used as the `name` filter on listPermissionGroups to find the matching permission group on policy-based accounts.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/account-roles-role-details" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          { "$ref": "#/components/parameters/RoleId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Account role.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Envelope" },
+                    {
+                      "type": "object",
+                      "properties": { "result": { "$ref": "#/components/schemas/AccountRole" } }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/accounts/{account_id}/iam/permission_groups": {
+      "get": {
+        "operationId": "listPermissionGroups",
+        "tags": ["roles"],
+        "summary": "List IAM permission groups",
+        "description": "Called with `name` set to a role's name to find the permission group that corresponds to it. Dropping the filter would return every permission group on the account and break the name match.",
+        "externalDocs": { "url": "https://developers.cloudflare.com/api/operations/permission-groups-list-permission-groups" },
+        "parameters": [
+          { "$ref": "#/components/parameters/AccountId" },
+          {
+            "name": "name",
+            "in": "query",
+            "description": "Filter by permission group name. The connector always sets this to the role name from getAccountRole.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "depth",
+            "in": "query",
+            "description": "Supported by the SDK params struct; the connector never sets it, so it is omitted from the request.",
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Permission groups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ListEnvelope" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "result": { "type": "array", "items": { "$ref": "#/components/schemas/PermissionGroup" } }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "apiToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Cloudflare API token, from the `api-token` config field."
+      },
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Auth-Key",
+        "description": "Legacy global API key, from the `api-key` config field. Must be paired with X-Auth-Email."
+      },
+      "apiEmail": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Auth-Email",
+        "description": "Account email, from the `email` config field. Used only with the legacy API key."
+      }
+    },
+    "parameters": {
+      "AccountId": {
+        "name": "account_id",
+        "in": "path",
+        "required": true,
+        "description": "From the `account-id` config field. Identical on every operation.",
+        "schema": { "type": "string" }
+      },
+      "GroupId": { "name": "group_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "MemberId": { "name": "member_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "RoleId": { "name": "role_id", "in": "path", "required": true, "schema": { "type": "string" } },
+      "Page": {
+        "name": "page",
+        "in": "query",
+        "description": "1-based page number.",
+        "schema": { "type": "integer", "minimum": 1 }
+      },
+      "PerPage": {
+        "name": "per_page",
+        "in": "query",
+        "description": "Page size. Defaults to 25 when the SDK auto-paginates.",
+        "schema": { "type": "integer", "default": 25 }
+      }
+    },
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "description": "Standard Cloudflare response wrapper. The SDK unwraps `result` before returning.",
+        "properties": {
+          "success": { "type": "boolean" },
+          "errors": { "type": "array", "items": { "type": "object" } },
+          "messages": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "ResultInfo": {
+        "type": "object",
+        "description": "Drives pagination. The SDK advances to `page + 1` and stops once the accumulated count reaches `total_count`.",
+        "properties": {
+          "page": { "type": "integer" },
+          "per_page": { "type": "integer" },
+          "count": { "type": "integer" },
+          "total_count": { "type": "integer" },
+          "total_pages": { "type": "integer" }
+        }
+      },
+      "ListEnvelope": {
+        "allOf": [
+          { "$ref": "#/components/schemas/Envelope" },
+          {
+            "type": "object",
+            "properties": { "result_info": { "$ref": "#/components/schemas/ResultInfo" } }
+          }
+        ]
+      },
+      "AccessKeysConfig": {
+        "type": "object",
+        "properties": {
+          "key_rotation_interval_days": { "type": "integer" },
+          "last_key_rotation_at": { "type": "string", "format": "date-time" },
+          "days_until_next_rotation": { "type": "integer" }
+        }
+      },
+      "AccessRule": {
+        "type": "object",
+        "description": "An Access rule such as {\"email\": {\"email\": \"user@example.com\"}}. The SDK types these as untyped maps, so no further structure is proven here.",
+        "additionalProperties": true
+      },
+      "AccessGroup": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "created_at": { "type": ["string", "null"], "format": "date-time" },
+          "updated_at": { "type": ["string", "null"], "format": "date-time" },
+          "include": {
+            "type": "array",
+            "description": "OR semantics — a user matching any rule is in the group. This is the only list the connector mutates.",
+            "items": { "$ref": "#/components/schemas/AccessRule" }
+          },
+          "exclude": {
+            "type": "array",
+            "description": "NOT semantics.",
+            "items": { "$ref": "#/components/schemas/AccessRule" }
+          },
+          "require": {
+            "type": "array",
+            "description": "AND semantics.",
+            "items": { "$ref": "#/components/schemas/AccessRule" }
+          }
+        }
+      },
+      "UpdateAccessGroupRequest": {
+        "type": "object",
+        "description": "All four fields are always sent — see the operation description for why omitting them is destructive.",
+        "required": ["id", "name", "include", "require", "exclude"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "include": { "type": "array", "items": { "$ref": "#/components/schemas/AccessRule" } },
+          "require": { "type": "array", "items": { "$ref": "#/components/schemas/AccessRule" } },
+          "exclude": { "type": "array", "items": { "$ref": "#/components/schemas/AccessRule" } }
+        }
+      },
+      "AccessUser": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "access_seat": { "type": ["boolean", "null"] },
+          "active_device_count": { "type": "integer" },
+          "created_at": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "gateway_seat": { "type": ["boolean", "null"] },
+          "last_successful_login": { "type": "string" },
+          "name": { "type": "string" },
+          "seat_uid": { "type": "string" },
+          "uid": { "type": "string" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "AccountMemberUserDetails": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Empty on a pending invite. The connector skips such members — see listAccountMembers."
+          },
+          "first_name": { "type": "string" },
+          "last_name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "two_factor_authentication_enabled": { "type": "boolean" }
+        }
+      },
+      "AccountMember": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "code": { "type": "string" },
+          "user": { "$ref": "#/components/schemas/AccountMemberUserDetails" },
+          "status": { "type": "string" },
+          "roles": {
+            "type": "array",
+            "description": "Present on legacy role-based accounts.",
+            "items": { "$ref": "#/components/schemas/AccountRole" }
+          },
+          "policies": {
+            "type": "array",
+            "description": "Present on policy-based accounts. Mutually exclusive with roles in practice.",
+            "items": { "$ref": "#/components/schemas/Policy" }
+          }
+        }
+      },
+      "UpdateAccountMemberRequest": {
+        "type": "object",
+        "description": "The connector sends exactly one of these keys per call, carrying the complete retained set plus the change.",
+        "properties": {
+          "roles": { "type": "array", "items": { "$ref": "#/components/schemas/AccountRole" } },
+          "policies": { "type": "array", "items": { "$ref": "#/components/schemas/Policy" } }
+        }
+      },
+      "AccountRole": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "description": "Also used as the `name` filter on listPermissionGroups." },
+          "description": { "type": "string" },
+          "permissions": {
+            "type": "object",
+            "description": "Map of permission scope to a read/write flag pair.",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Policy": {
+        "type": "object",
+        "description": "An account-member access policy. The connector constructs one with access=allow, a single permission group, and a resource group scoped to the account.",
+        "properties": {
+          "id": { "type": "string" },
+          "access": { "type": "string", "enum": ["allow", "deny"] },
+          "permission_groups": { "type": "array", "items": { "$ref": "#/components/schemas/PermissionGroup" } },
+          "resource_groups": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        }
+      },
+      "PermissionGroup": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "meta": { "type": "object", "additionalProperties": { "type": "string" } },
+          "permissions": { "type": "array", "items": { "type": "object", "additionalProperties": true } }
+        }
+      }
+    }
+  }
+}
