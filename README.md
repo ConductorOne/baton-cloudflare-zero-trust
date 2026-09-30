@@ -24,7 +24,7 @@ baton resources
 ## docker
 
 ```
-docker run --rm -v $(pwd):/out -e BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_KEY=cloudflareApiKey BATON_EMAIL=yourEmail ghcr.io/conductorone/baton-cloudflare-zero-trust:latest -f "/out/sync.c1z"
+docker run --rm -v $(pwd):/out -e BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_KEY=cloudflareApiKey BATON_EMAIL=yourEmail public.ecr.aws/conductorone/baton-cloudflare-zero-trust:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
