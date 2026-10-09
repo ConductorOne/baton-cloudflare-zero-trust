@@ -102,6 +102,38 @@
     },
     {
       "resourceType": {
+        "id": "service_token",
+        "displayName": "Service Token",
+        "traits": [
+          "TRAIT_SECRET"
+        ],
+        "annotations": [
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.SkipEntitlementsAndGrants"
+          },
+          {
+            "@type": "type.googleapis.com/c1.connector.v2.CapabilityPermissions",
+            "permissions": [
+              {
+                "permission": "Access: Service Tokens Read"
+              }
+            ]
+          }
+        ]
+      },
+      "capabilities": [
+        "CAPABILITY_SYNC"
+      ],
+      "permissions": {
+        "permissions": [
+          {
+            "permission": "Access: Service Tokens Read"
+          }
+        ]
+      }
+    },
+    {
+      "resourceType": {
         "id": "user",
         "displayName": "User",
         "traits": [

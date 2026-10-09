@@ -40,5 +40,12 @@ var (
 		Id:          "service_token",
 		DisplayName: "Service Token",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_SECRET},
+		// Service tokens carry no entitlements or grants of their own.
+		Annotations: annotations.New(
+			&v2.SkipEntitlementsAndGrants{},
+			capabilityPermissions(
+				"Access: Service Tokens Read",
+			),
+		),
 	}
 )
