@@ -127,9 +127,10 @@ func TestServiceTokenListPaginates(t *testing.T) {
 	assert.Equal(t, []string{"token-1", "token-2", "token-3"}, ids)
 }
 
-// TestServiceTokenListSkipsWhenForbidden checks that an API token without
-// the service tokens permission does not fail the sync.
-func TestServiceTokenListSkipsWhenForbidden(t *testing.T) {
+// TestServiceTokenListReturnsForbidden checks that a 403 fails the sync
+// instead of being read as "no service tokens", which C1 would treat as
+// every previously synced token being deleted.
+func TestServiceTokenListReturnsForbidden(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -141,7 +142,40 @@ func TestServiceTokenListSkipsWhenForbidden(t *testing.T) {
 	require.NoError(t, err)
 
 	resources, results, err := newServiceTokenBuilder(client, "test-account").List(context.Background(), nil, rs.SyncOpAttrs{})
-	require.NoError(t, err)
-	assert.Empty(t, resources)
+	require.Error(t, err)
+	var forbidden *cloudflare.AuthenticationError
+	assert.ErrorAs(t, err, &forbidden)
+	assert.Nil(t, resources)
 	assert.Nil(t, results)
+}
+
+func TestHasMoreServiceTokenPages(t *testing.T) {
+	full := resourcePageSize
+	tests := []struct {
+		name     string
+		info     cloudflare.ResultInfo
+		page     int
+		received int
+		want     bool
+		wantErr  bool
+	}{
+		{name: "total_pages, more", info: cloudflare.ResultInfo{TotalPages: 3}, page: 1, received: full, want: true},
+		{name: "total_pages, last", info: cloudflare.ResultInfo{TotalPages: 3}, page: 3, received: 1, want: false},
+		{name: "total_count fallback, more", info: cloudflare.ResultInfo{Total: full + 1, PerPage: full}, page: 1, received: full, want: true},
+		{name: "total_count fallback, last", info: cloudflare.ResultInfo{Total: full + 1, PerPage: full}, page: 2, received: 1, want: false},
+		{name: "no info, short page", info: cloudflare.ResultInfo{}, page: 1, received: 3, want: false},
+		{name: "no info, empty page", info: cloudflare.ResultInfo{}, page: 1, received: 0, want: false},
+		{name: "no info, full page", info: cloudflare.ResultInfo{}, page: 1, received: full, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := hasMoreServiceTokenPages(tt.info, tt.page, tt.received)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }

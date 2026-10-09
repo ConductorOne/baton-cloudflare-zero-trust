@@ -21,6 +21,10 @@ sidebarTitle: "Cloudflare Zero Trust"
 {/* AUTO-GENERATED:END - capabilities */}
 
 **Notes:**
+- Service tokens are Cloudflare Access service tokens, synced as non-human
+  identities. Syncing them requires the **Access: Service Tokens Read**
+  permission on the API token. Without it, the sync fails, so add it to
+  existing API tokens before upgrading.
 - Access group membership grants are derived from each group's Cloudflare
   Access policy rules (`Include`/`Require`/`Exclude`). See [Access group
   rules](#access-group-rules) below for exactly which rule types are
@@ -188,7 +192,7 @@ A user with **Super Administrator** access in Cloudflare Zero Trust must perform
 
     1. Give the API token a name, such as **C1**
 
-    2. Set the appropriate permissions for the API token:
+    2. Set the appropriate permissions for the API token. Every permission below is required, including **Access: Service Tokens Read** for syncing service tokens:
 
        If you want to use C1 to provision Cloudflare Zero Trust groups and roles, set:
 

@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,8 +11,6 @@ import (
 	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
 // serviceTokenSecretDetail identifies the credential kind on the secret trait.
@@ -98,6 +95,25 @@ func (s *serviceTokenBuilder) listServiceTokensPage(ctx context.Context, page in
 	return tokens, info, nil
 }
 
+// hasMoreServiceTokenPages reports whether another page follows the given one.
+// The page count comes from total_pages, or from total_count and per_page when
+// total_pages is absent, the same fallback cloudflare-go's own pagination uses.
+// A full page with no usable paging metadata is an error rather than the last
+// page, so a sync can never silently stop short.
+func hasMoreServiceTokenPages(info cloudflare.ResultInfo, page int, received int) (bool, error) {
+	totalPages := info.TotalPages
+	if totalPages == 0 && info.Total > 0 && info.PerPage > 0 {
+		totalPages = (info.Total + info.PerPage - 1) / info.PerPage
+	}
+	if totalPages > 0 {
+		return page < totalPages, nil
+	}
+	if received < resourcePageSize {
+		return false, nil
+	}
+	return false, fmt.Errorf("baton-cloudflare-zero-trust: service tokens page %d returned a full page without pagination info", page)
+}
+
 // List returns the account's Zero Trust Access service tokens, one page per call.
 func (s *serviceTokenBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	if s.accountId == "" {
@@ -114,19 +130,6 @@ func (s *serviceTokenBuilder) List(ctx context.Context, parentResourceID *v2.Res
 
 	tokens, info, err := s.listServiceTokensPage(ctx, page)
 	if err != nil {
-		// Service tokens need a permission ("Access: Service Tokens Read") that
-		// API tokens created before this resource type existed do not carry.
-		// A 403 on the first page is treated as "not granted" so that the rest
-		// of the sync still completes. cloudflare-go reports a 403 as an
-		// AuthenticationError (and a 401 as an AuthorizationError).
-		var forbidden *cloudflare.AuthenticationError
-		if page == 1 && errors.As(err, &forbidden) {
-			ctxzap.Extract(ctx).Warn(
-				"baton-cloudflare-zero-trust: API token lacks permission to list Access service tokens; skipping service tokens. Grant \"Access: Service Tokens Read\" to sync them.",
-				zap.Error(err),
-			)
-			return nil, nil, nil
-		}
 		return nil, nil, wrapError(err, "failed to list access service tokens")
 	}
 
@@ -139,7 +142,11 @@ func (s *serviceTokenBuilder) List(ctx context.Context, parentResourceID *v2.Res
 		resources = append(resources, resource)
 	}
 
-	if info.Page >= info.TotalPages {
+	more, err := hasMoreServiceTokenPages(info, page, len(tokens))
+	if err != nil {
+		return nil, nil, err
+	}
+	if !more {
 		return resources, nil, nil
 	}
 
@@ -147,13 +154,13 @@ func (s *serviceTokenBuilder) List(ctx context.Context, parentResourceID *v2.Res
 }
 
 // Entitlements returns nil. The service token resource type is annotated with
-// SkipEntitlements, so the SDK never invokes this per-resource hook.
+// SkipEntitlementsAndGrants, so the SDK never invokes this per-resource hook.
 func (s *serviceTokenBuilder) Entitlements(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	return nil, nil, nil
 }
 
 // Grants returns nil. The service token resource type is annotated with
-// SkipGrants, so the SDK never invokes this per-resource hook.
+// SkipEntitlementsAndGrants, so the SDK never invokes this per-resource hook.
 func (s *serviceTokenBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	return nil, nil, nil
 }
