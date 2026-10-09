@@ -3,10 +3,10 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
@@ -22,7 +22,7 @@ const memberRole = "member"
 
 type groupBuilder struct {
 	resourceType *v2.ResourceType
-	client       *cloudflare.API
+	client       *client.Client
 	accountId    string
 }
 
@@ -62,15 +62,14 @@ func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
 
 // List returns all the access groups from the database as resource objects.
 func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	groups, _, err := g.client.ListAccessGroups(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.ListAccessGroupsParams{})
+	groups, annos, err := g.client.ListAccessGroups(ctx)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list access groups")
 	}
 
 	resources := make([]*v2.Resource, 0, len(groups))
 	for _, group := range groups {
-		groupCopy := group
-		resource, err := newGroupResource(&groupCopy)
+		resource, err := newGroupResource(group)
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to create group resource")
 		}
@@ -78,7 +77,7 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 		resources = append(resources, resource)
 	}
 
-	return resources, nil, nil
+	return resources, &rs.SyncOpResults{Annotations: annos}, nil
 }
 
 // Entitlements is unused; StaticEntitlements defines the membership entitlement for all groups.
@@ -113,32 +112,21 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 	var (
 		users []cloudflare.AccessUser
 		rv    []*v2.Grant
-		info  cloudflare.ResultInfo
 	)
-	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), resource.Id.Resource)
+	group, _, err := g.client.GetAccessGroup(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to get access group")
 	}
 
-	bag, page, err := parsePageToken(opts.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
+	bag, err := newPageBag(opts.PageToken.Token, &v2.ResourceId{ResourceType: g.resourceType.Id})
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// An empty page token parses to 0, which is both this method's "first
-	// call" signal and an invalid Cloudflare page number: PaginationOptions.Page
-	// is omitempty, so 0 drops the parameter and the API serves page 1 anyway.
-	// Capture the signal before normalizing, so the page number sent upstream
-	// and the one reported back in ResultInfo agree from the first call.
-	firstPage := page == 0
-	if page == 0 {
-		page = 1
-	}
+	// An empty page token is this method's first call for the group.
+	firstPage := bag.PageToken() == ""
 
-	memberUsers, info, err := g.client.AccountMembers(ctx, g.accountId, cloudflare.PaginationOptions{
-		Page:    page,
-		PerPage: resourcePageSize,
-	})
+	memberUsers, next, annos, err := g.client.ListAccountMembers(ctx, bag.PageToken())
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list members")
 	}
@@ -261,16 +249,16 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 		}
 	}
 
-	if info.TotalPages <= info.Page {
-		return rv, nil, nil
+	if next == "" {
+		return rv, &rs.SyncOpResults{Annotations: annos}, nil
 	}
 
-	nextPage, err := bag.NextToken(strconv.Itoa(page + 1))
+	nextPage, err := bag.NextToken(next)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to build next page token")
 	}
 
-	return rv, &rs.SyncOpResults{NextPageToken: nextPage}, nil
+	return rv, &rs.SyncOpResults{NextPageToken: nextPage, Annotations: annos}, nil
 }
 
 func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
@@ -290,7 +278,7 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 		return nil, wrapError(err, "unable to get email from user trait")
 	}
 
-	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), entitlement.Resource.Id.Resource)
+	group, _, err := g.client.GetAccessGroup(ctx, entitlement.Resource.Id.Resource)
 	if err != nil {
 		return nil, wrapError(err, "failed to get access group")
 	}
@@ -321,7 +309,7 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 	include := append(append([]interface{}{}, group.Include...),
 		map[string]interface{}{"email": map[string]interface{}{"email": email}})
 
-	if err := g.updateAccessGroupInclude(ctx, &group, include); err != nil {
+	if _, err := g.client.UpdateAccessGroupInclude(ctx, &group, include); err != nil {
 		return nil, fmt.Errorf("baton-cloudflare-zero-trust: failed to add user to group: %w", err)
 	}
 
@@ -347,7 +335,7 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 		return nil, wrapError(err, "unable to get email from user trait")
 	}
 
-	group, err := g.client.GetAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), entitlement.Resource.Id.Resource)
+	group, _, err := g.client.GetAccessGroup(ctx, entitlement.Resource.Id.Resource)
 	if err != nil {
 		return nil, wrapError(err, "failed to get access group")
 	}
@@ -378,7 +366,7 @@ func (g *groupBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (ann
 		)
 	}
 
-	if err := g.updateAccessGroupInclude(ctx, &group, include); err != nil {
+	if _, err := g.client.UpdateAccessGroupInclude(ctx, &group, include); err != nil {
 		return nil, fmt.Errorf("baton-cloudflare-zero-trust: failed to remove user from group: %w", err)
 	}
 
@@ -471,25 +459,10 @@ func includeRuleEmail(rule interface{}) (string, bool) {
 	return address, true
 }
 
-// updateAccessGroupInclude replaces a group's Include list, carrying the rest
-// of the group over unchanged. UpdateAccessGroupParams serializes Name,
-// Require and Exclude without omitempty, so sending only Include would write
-// an empty name and clear both other rule lists.
-func (g *groupBuilder) updateAccessGroupInclude(ctx context.Context, group *cloudflare.AccessGroup, include []interface{}) error {
-	_, err := g.client.UpdateAccessGroup(ctx, cloudflare.AccountIdentifier(g.accountId), cloudflare.UpdateAccessGroupParams{
-		ID:      group.ID,
-		Name:    group.Name,
-		Include: include,
-		Require: group.Require,
-		Exclude: group.Exclude,
-	})
-	return err
-}
-
-func newGroupBuilder(client *cloudflare.API, accountId string) *groupBuilder {
+func newGroupBuilder(c *client.Client, accountId string) *groupBuilder {
 	return &groupBuilder{
 		resourceType: groupResourceType,
-		client:       client,
+		client:       c,
 		accountId:    accountId,
 	}
 }

@@ -3,7 +3,7 @@ package connector
 import (
 	"context"
 
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	cfg "github.com/conductorone/baton-cloudflare-zero-trust/pkg/config"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -12,7 +12,7 @@ import (
 )
 
 type Connector struct {
-	client    *cloudflare.API
+	client    *client.Client
 	accountId string
 }
 
@@ -36,7 +36,7 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 // Validate is called to ensure that the connector is properly configured. It should exercise any API credentials
 // to be sure that they are valid.
 func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, err := d.client.AccessKeysConfig(ctx, d.accountId)
+	_, _, err := d.client.AccessKeysConfig(ctx)
 	if err != nil {
 		return nil, wrapError(err, "failed to validate access keys config")
 	}
@@ -46,32 +46,13 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 
 // New returns a new instance of the connector.
 func New(ctx context.Context, ac *cfg.CloudflareZeroTrust, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
-	var (
-		client *cloudflare.API
-		err    error
-	)
-
-	var opts []cloudflare.Option
-	if ac.BaseUrl != "" {
-		opts = append(opts, cloudflare.BaseURL(ac.BaseUrl))
-	}
-
-	if ac.ApiKey != "" && ac.Email != "" {
-		client, err = cloudflare.New(ac.ApiKey, ac.Email, opts...)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	if ac.ApiToken != "" {
-		client, err = cloudflare.NewWithAPIToken(ac.ApiToken, opts...)
-		if err != nil {
-			return nil, nil, err
-		}
+	c, err := client.New(ctx, ac.AccountId, ac.ApiToken, ac.ApiKey, ac.Email, ac.BaseUrl)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	return &Connector{
-		client:    client,
+		client:    c,
 		accountId: ac.AccountId,
 	}, nil, nil
 }

@@ -3,12 +3,13 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -33,7 +34,7 @@ const (
 
 type userBuilder struct {
 	resourceType *v2.ResourceType
-	client       *cloudflare.API
+	client       *client.Client
 	accountId    string
 }
 
@@ -168,48 +169,34 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 		bag.Push(pagination.PageState{ResourceTypeID: accessUsersPageState})
 	}
 
-	page, err := getPageFromPageToken(bag.PageToken())
-	if err != nil {
-		return nil, nil, err
-	}
-	if page == 0 {
-		page = 1
-	}
-
 	var (
-		resources   []*v2.Resource
-		currentPage int
-		totalPages  int
+		resources []*v2.Resource
+		next      string
+		annos     annotations.Annotations
+		err       error
 	)
 
 	switch bag.ResourceTypeID() {
 	case accessUsersPageState:
-		users, info, err := o.client.ListAccessUsers(ctx, cloudflare.AccountIdentifier(o.accountId), cloudflare.AccessUserParams{
-			ResultInfo: cloudflare.ResultInfo{
-				Page:    page,
-				PerPage: resourcePageSize,
-			},
-		})
+		var users []*cloudflare.AccessUser
+		users, next, annos, err = o.client.ListAccessUsers(ctx, bag.PageToken())
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to list users")
 		}
 
 		resources = make([]*v2.Resource, 0, len(users))
 		for _, user := range users {
-			resource, err := newUserResource(user)
+			resource, err := newUserResource(*user)
 			if err != nil {
 				return nil, nil, wrapError(err, "failed to create user resource")
 			}
 
 			resources = append(resources, resource)
 		}
-		currentPage, totalPages = info.Page, info.TotalPages
 
 	case accountMembersPageState:
-		members, info, err := o.client.AccountMembers(ctx, o.accountId, cloudflare.PaginationOptions{
-			Page:    page,
-			PerPage: resourcePageSize,
-		})
+		var members []*cloudflare.AccountMember
+		members, next, annos, err = o.client.ListAccountMembers(ctx, bag.PageToken())
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to list members")
 		}
@@ -224,36 +211,27 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 				continue
 			}
 
-			resource, err := newUserResourceFromMember(member)
+			resource, err := newUserResourceFromMember(*member)
 			if err != nil {
 				return nil, nil, wrapError(err, "failed to create user resource")
 			}
 
 			resources = append(resources, resource)
 		}
-		currentPage, totalPages = info.Page, info.TotalPages
 
 	default:
 		return nil, nil, fmt.Errorf("baton-cloudflare-zero-trust: unexpected page state %q", bag.ResourceTypeID())
 	}
 
-	// If the current endpoint has more pages, advance its page number.
-	// Otherwise pop it from the bag and continue with the next endpoint (if any).
-	var nextToken string
-	if currentPage < totalPages {
-		nextToken, err = bag.NextToken(strconv.Itoa(page + 1))
-	} else {
-		nextToken, err = bag.NextToken("")
-	}
+	// If the current endpoint has more pages, advance to the client's next
+	// page token. Otherwise pop it from the bag and continue with the next
+	// endpoint (if any).
+	nextToken, err := bag.NextToken(next)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if nextToken == "" {
-		return resources, nil, nil
-	}
-
-	return resources, &rs.SyncOpResults{NextPageToken: nextToken}, nil
+	return resources, &rs.SyncOpResults{NextPageToken: nextToken, Annotations: annos}, nil
 }
 
 // Entitlements always returns an empty slice for users.
@@ -285,10 +263,10 @@ func (o *userBuilder) Grants(_ context.Context, resource *v2.Resource, _ rs.Sync
 	return grants, nil, nil
 }
 
-func newUserBuilder(client *cloudflare.API, accountId string) *userBuilder {
+func newUserBuilder(c *client.Client, accountId string) *userBuilder {
 	return &userBuilder{
 		resourceType: userResourceType,
-		client:       client,
+		client:       c,
 		accountId:    accountId,
 	}
 }

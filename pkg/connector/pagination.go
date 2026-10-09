@@ -1,17 +1,17 @@
 package connector
 
 import (
-	"strconv"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 )
 
-func parsePageToken(i string, resourceID *v2.ResourceId) (*pagination.Bag, int, error) {
+// newPageBag restores the pagination bag from a page token, starting a new bag
+// for resourceID when the token is empty. The bag's own page token is the
+// client's opaque page token.
+func newPageBag(token string, resourceID *v2.ResourceId) (*pagination.Bag, error) {
 	b := &pagination.Bag{}
-	err := b.Unmarshal(i)
-	if err != nil {
-		return nil, 0, err
+	if err := b.Unmarshal(token); err != nil {
+		return nil, err
 	}
 
 	if b.Current() == nil {
@@ -21,25 +21,5 @@ func parsePageToken(i string, resourceID *v2.ResourceId) (*pagination.Bag, int, 
 		})
 	}
 
-	page, err := getPageFromPageToken(b.PageToken())
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return b, page, nil
+	return b, nil
 }
-
-func getPageFromPageToken(token string) (int, error) {
-	if token == "" {
-		return 0, nil
-	}
-
-	page, err := strconv.ParseInt(token, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(page), nil
-}
-
-var resourcePageSize = 50
