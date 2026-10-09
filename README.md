@@ -1,6 +1,6 @@
 # `baton-cloudflare-zero-trust` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-cloudflare-zero-trust.svg)](https://pkg.go.dev/github.com/conductorone/baton-cloudflare-zero-trust) ![ci](https://github.com/conductorone/baton-cloudflare-zero-trust/actions/workflows/ci.yaml/badge.svg)
 
-`baton-cloudflare-zero-trust` is a connector for Cloudflare Zero Trust built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It communicates with the Cloudflare API to sync data about users and access groups in your Cloudflare Zero Trust organization.
+`baton-cloudflare-zero-trust` is a connector for Cloudflare Zero Trust built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It communicates with the Cloudflare API to sync data about users, access groups, roles, and Access service tokens in your Cloudflare Zero Trust organization.
 Check out [Baton](https://github.com/conductorone/baton) to learn more about the project in general.
 
 # Getting Started

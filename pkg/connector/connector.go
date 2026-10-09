@@ -22,6 +22,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 		newUserBuilder(d.client, d.accountId),
 		newGroupBuilder(d.client, d.accountId),
 		newRoleBuilder(d.client, d.accountId),
+		newServiceTokenBuilder(d.client, d.accountId),
 	}
 }
 
@@ -29,7 +30,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "Cloudflare Zero Trust",
-		Description: "Syncs users, groups, and roles from Cloudflare Zero Trust and provisions group and role access.",
+		Description: "Syncs users, groups, roles, and Access service tokens from Cloudflare Zero Trust and provisions group and role access.",
 	}, nil
 }
 
