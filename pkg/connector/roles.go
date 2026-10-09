@@ -2,10 +2,10 @@ package connector
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
@@ -18,14 +18,9 @@ import (
 
 type roleBuilder struct {
 	resourceType *v2.ResourceType
-	client       *cloudflare.API
+	client       *client.Client
 	accountId    string
 }
-
-const (
-	errMissingAccountID = "required missing account ID"
-	errMissingMemberID  = "required missing member ID"
-)
 
 // roleAssignmentEntitlement is the slug of the single assignment entitlement
 // declared for every role resource. It must stay in sync with the slug used
@@ -33,8 +28,8 @@ const (
 const roleAssignmentEntitlement = "assigned"
 
 var (
-	ErrMissingAccountID = errors.New(errMissingAccountID)
-	ErrMissingMemberID  = errors.New(errMissingMemberID)
+	ErrMissingAccountID = client.ErrMissingAccountID
+	ErrMissingMemberID  = client.ErrMissingMemberID
 )
 
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
@@ -65,18 +60,8 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
-//
-// ListAccountRoles only returns a ResultInfo (and thus a way to detect more
-// pages) when called without explicit Page/PerPage; passing those turns off
-// the client's own pagination and leaves no signal that more roles exist. So
-// this is called with no paging params, letting the client fetch every role
-// internally in a single call, the same way groupBuilder.List calls
-// ListAccessGroups.
 func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	accountID := cloudflare.ResourceContainer{
-		Identifier: r.accountId,
-	}
-	roles, err := r.client.ListAccountRoles(ctx, &accountID, cloudflare.ListAccountRolesParams{})
+	roles, err := r.client.ListAccountRoles(ctx)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list roles")
 	}
@@ -125,45 +110,6 @@ func (r *roleBuilder) Grants(_ context.Context, _ *v2.Resource, _ rs.SyncOpAttrs
 	return nil, nil, nil
 }
 
-// getAccountMember returns an account member. cloudflare-go's AccountMember
-// authenticates with whichever scheme the client was built for and turns a
-// non-2xx response into a typed *cloudflare.Error, so neither concern is
-// handled here. It does not reject an empty member ID, which would address the
-// member collection instead of a member, so that is guarded.
-func (r *roleBuilder) getAccountMember(ctx context.Context, accountID string, memberID string) (cloudflare.AccountMember, error) {
-	if accountID == "" {
-		return cloudflare.AccountMember{}, ErrMissingAccountID
-	}
-	if memberID == "" {
-		return cloudflare.AccountMember{}, ErrMissingMemberID
-	}
-
-	return r.client.AccountMember(ctx, accountID, memberID)
-}
-
-// rolePermissionGroup finds the permission group that mirrors the given
-// classic role. Accounts enrolled in Domain Scoped Roles represent grants via
-// Policies (a permission group + resource group pair), not the legacy Roles
-// list, and reject an update that sets Roles on a member that already has
-// Policies. Permission groups share their name with the role they mirror, so
-// the role's name is used to find the equivalent group.
-func (r *roleBuilder) rolePermissionGroup(ctx context.Context, roleID string) (cloudflare.PermissionGroup, error) {
-	role, err := r.client.GetAccountRole(ctx, cloudflare.AccountIdentifier(r.accountId), roleID)
-	if err != nil {
-		return cloudflare.PermissionGroup{}, wrapError(err, "failed to get role")
-	}
-
-	groups, err := r.client.ListPermissionGroups(ctx, cloudflare.AccountIdentifier(r.accountId), cloudflare.ListPermissionGroupParams{RoleName: role.Name})
-	if err != nil {
-		return cloudflare.PermissionGroup{}, wrapError(err, "failed to list permission groups")
-	}
-	if len(groups) == 0 {
-		return cloudflare.PermissionGroup{}, fmt.Errorf("baton-cloudflare-zero-trust: no permission group found for role %q", role.Name)
-	}
-
-	return groups[0], nil
-}
-
 func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	var (
 		err    error
@@ -185,7 +131,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	account, err := r.getAccountMember(ctx, r.accountId, memberId)
+	account, err := r.client.AccountMember(ctx, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -196,7 +142,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	// model; grant via an equivalent Policy instead of the legacy Roles
 	// list, which Cloudflare rejects once Policies are present.
 	if len(account.Policies) > 0 {
-		group, err := r.rolePermissionGroup(ctx, roleId)
+		group, err := r.client.RolePermissionGroup(ctx, roleId)
 		if err != nil {
 			return nil, err
 		}
@@ -207,7 +153,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 			Access:           "allow",
 		}
 
-		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+		member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 			Policies: append(account.Policies, newPolicy),
 		})
 		if err != nil {
@@ -229,7 +175,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		})
 	}
 
-	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+	member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {
@@ -245,7 +191,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 }
 
 func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, error) {
-	member, err := findMemberByUserID(ctx, r.client, r.accountId, userId)
+	member, err := r.client.FindMemberByUserID(ctx, userId, resourcePageSize)
 	if err != nil {
 		return "", wrapError(err, "failed to list user members")
 	}
@@ -282,7 +228,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		return nil, err
 	}
 
-	account, err := r.getAccountMember(ctx, r.accountId, memberId)
+	account, err := r.client.AccountMember(ctx, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +237,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	// Scoped Roles model, so revoke by removing the equivalent Policy
 	// instead of filtering the legacy Roles list.
 	if len(account.Policies) > 0 {
-		group, err := r.rolePermissionGroup(ctx, roleId)
+		group, err := r.client.RolePermissionGroup(ctx, roleId)
 		if err != nil {
 			return nil, err
 		}
@@ -317,7 +263,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 			policies = append(policies, policy)
 		}
 
-		member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+		member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 			Policies: policies,
 		})
 		if err != nil {
@@ -341,7 +287,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		}
 	}
 
-	member, err := r.client.UpdateAccountMember(ctx, r.accountId, memberId, cloudflare.AccountMember{
+	member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {
@@ -356,10 +302,10 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	return nil, nil
 }
 
-func newRoleBuilder(client *cloudflare.API, accountId string) *roleBuilder {
+func newRoleBuilder(c *client.Client, accountId string) *roleBuilder {
 	return &roleBuilder{
 		resourceType: roleResourceType,
-		client:       client,
+		client:       c,
 		accountId:    accountId,
 	}
 }

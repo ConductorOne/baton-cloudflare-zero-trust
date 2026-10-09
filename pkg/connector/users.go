@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -33,7 +34,7 @@ const (
 
 type userBuilder struct {
 	resourceType *v2.ResourceType
-	client       *cloudflare.API
+	client       *client.Client
 	accountId    string
 }
 
@@ -184,7 +185,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 
 	switch bag.ResourceTypeID() {
 	case accessUsersPageState:
-		users, info, err := o.client.ListAccessUsers(ctx, cloudflare.AccountIdentifier(o.accountId), cloudflare.AccessUserParams{
+		users, info, err := o.client.ListAccessUsers(ctx, cloudflare.AccessUserParams{
 			ResultInfo: cloudflare.ResultInfo{
 				Page:    page,
 				PerPage: resourcePageSize,
@@ -206,7 +207,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 		currentPage, totalPages = info.Page, info.TotalPages
 
 	case accountMembersPageState:
-		members, info, err := o.client.AccountMembers(ctx, o.accountId, cloudflare.PaginationOptions{
+		members, info, err := o.client.AccountMembers(ctx, cloudflare.PaginationOptions{
 			Page:    page,
 			PerPage: resourcePageSize,
 		})
@@ -285,10 +286,10 @@ func (o *userBuilder) Grants(_ context.Context, resource *v2.Resource, _ rs.Sync
 	return grants, nil, nil
 }
 
-func newUserBuilder(client *cloudflare.API, accountId string) *userBuilder {
+func newUserBuilder(c *client.Client, accountId string) *userBuilder {
 	return &userBuilder{
 		resourceType: userResourceType,
-		client:       client,
+		client:       c,
 		accountId:    accountId,
 	}
 }
