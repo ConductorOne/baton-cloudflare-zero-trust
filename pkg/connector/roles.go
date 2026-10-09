@@ -61,14 +61,14 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
 func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	roles, err := r.client.ListAccountRoles(ctx)
+	roles, annos, err := r.client.ListAccountRoles(ctx)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list roles")
 	}
 
 	resources := make([]*v2.Resource, 0, len(roles))
 	for _, role := range roles {
-		resource, err := getRoleResource(ctx, role, roleResourceType, parentId)
+		resource, err := getRoleResource(ctx, *role, roleResourceType, parentId)
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to create role resource")
 		}
@@ -76,7 +76,7 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.Sy
 		resources = append(resources, resource)
 	}
 
-	return resources, nil, nil
+	return resources, &rs.SyncOpResults{Annotations: annos}, nil
 }
 
 // Entitlements returns nil. Role entitlements are declared statically via
@@ -131,7 +131,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, err
 	}
 
-	account, err := r.client.AccountMember(ctx, memberId)
+	account, _, err := r.client.AccountMember(ctx, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	// model; grant via an equivalent Policy instead of the legacy Roles
 	// list, which Cloudflare rejects once Policies are present.
 	if len(account.Policies) > 0 {
-		group, err := r.client.RolePermissionGroup(ctx, roleId)
+		group, _, err := r.client.RolePermissionGroup(ctx, roleId)
 		if err != nil {
 			return nil, err
 		}
@@ -153,7 +153,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 			Access:           "allow",
 		}
 
-		member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+		member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 			Policies: append(account.Policies, newPolicy),
 		})
 		if err != nil {
@@ -175,7 +175,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		})
 	}
 
-	member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+	member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {
@@ -191,7 +191,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 }
 
 func getMemberId(ctx context.Context, r *roleBuilder, userId string) (string, error) {
-	member, err := r.client.FindMemberByUserID(ctx, userId, resourcePageSize)
+	member, err := findMemberByUserID(ctx, r.client, userId)
 	if err != nil {
 		return "", wrapError(err, "failed to list user members")
 	}
@@ -228,7 +228,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		return nil, err
 	}
 
-	account, err := r.client.AccountMember(ctx, memberId)
+	account, _, err := r.client.AccountMember(ctx, memberId)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	// Scoped Roles model, so revoke by removing the equivalent Policy
 	// instead of filtering the legacy Roles list.
 	if len(account.Policies) > 0 {
-		group, err := r.client.RolePermissionGroup(ctx, roleId)
+		group, _, err := r.client.RolePermissionGroup(ctx, roleId)
 		if err != nil {
 			return nil, err
 		}
@@ -263,7 +263,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 			policies = append(policies, policy)
 		}
 
-		member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+		member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 			Policies: policies,
 		})
 		if err != nil {
@@ -287,7 +287,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		}
 	}
 
-	member, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+	member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {

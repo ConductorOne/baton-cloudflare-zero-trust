@@ -36,7 +36,7 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 // Validate is called to ensure that the connector is properly configured. It should exercise any API credentials
 // to be sure that they are valid.
 func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, err := d.client.AccessKeysConfig(ctx)
+	_, _, err := d.client.AccessKeysConfig(ctx)
 	if err != nil {
 		return nil, wrapError(err, "failed to validate access keys config")
 	}
@@ -46,7 +46,7 @@ func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, erro
 
 // New returns a new instance of the connector.
 func New(ctx context.Context, ac *cfg.CloudflareZeroTrust, _ *cli.ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error) {
-	c, err := client.New(ac.AccountId, ac.ApiToken, ac.ApiKey, ac.Email, ac.BaseUrl)
+	c, err := client.New(ctx, ac.AccountId, ac.ApiToken, ac.ApiKey, ac.Email, ac.BaseUrl)
 	if err != nil {
 		return nil, nil, err
 	}

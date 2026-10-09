@@ -1,9 +1,12 @@
 package connector
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -67,6 +70,32 @@ func getValueFromUserTrait(resource *v2.Resource, profileField string) (string, 
 	}
 
 	return value, nil
+}
+
+// findMemberByUserID pages through the account's members looking for the one
+// whose native user ID matches userId. There is no way to filter members by
+// user ID server-side, so this always scans until a match or the last page.
+// A nil member with a nil error means no account member has this user ID —
+// e.g. the ID belongs to a pure Access user with no account membership.
+func findMemberByUserID(ctx context.Context, c *client.Client, userId string) (*cloudflare.AccountMember, error) {
+	pageToken := ""
+	for {
+		members, next, _, err := c.ListAccountMembers(ctx, pageToken)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, member := range members {
+			if member.User.ID == userId {
+				return member, nil
+			}
+		}
+
+		if next == "" {
+			return nil, nil
+		}
+		pageToken = next
+	}
 }
 
 func getEmailFromUserTrait(resource *v2.Resource) (string, error) {
