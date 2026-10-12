@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/assert"
@@ -84,9 +85,9 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 func writeMembersPage(t *testing.T, w http.ResponseWriter, page, totalPages int) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Ratelimit-Limit", "1200")
-	w.Header().Set("Ratelimit-Remaining", "1199")
-	w.Header().Set("Ratelimit-Reset", "300")
+	// The header format the Cloudflare v4 API sends.
+	w.Header().Set("Ratelimit", `"default";r=1199;t=1`)
+	w.Header().Set("Ratelimit-Policy", `"default";q=1200;w=300`)
 	require.NoError(t, json.NewEncoder(w).Encode(map[string]interface{}{
 		"success":  true,
 		"errors":   []interface{}{},
@@ -292,4 +293,187 @@ func TestUpdateAccountMemberRequiresRolesOrPolicies(t *testing.T) {
 		Policies: []Policy{{Access: "allow"}},
 	})
 	require.ErrorIs(t, err, ErrMissingMemberRolesOrPolicies)
+}
+
+func TestExtractRateLimit(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	header := func(values map[string]string) http.Header {
+		h := http.Header{}
+		for k, v := range values {
+			h.Set(k, v)
+		}
+		return h
+	}
+
+	tests := []struct {
+		name       string
+		statusCode int
+		header     http.Header
+		wantNil    bool
+		limit      int64
+		remaining  int64
+		resetIn    time.Duration
+		noReset    bool
+		status     v2.RateLimitDescription_Status
+	}{
+		{
+			name:       "structured headers",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"Ratelimit": `"default";r=1199;t=1`, "Ratelimit-Policy": `"default";q=1200;w=300`}),
+			limit:      1200, remaining: 1199, resetIn: time.Second,
+			status: v2.RateLimitDescription_STATUS_OK,
+		},
+		{
+			name:       "several policies, fewest remaining wins",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"Ratelimit": `"default";r=900;t=100, "burst";r=3;t=2`, "Ratelimit-Policy": `"default";q=1200;w=300, "burst";q=10;w=5`}),
+			limit:      10, remaining: 3, resetIn: 2 * time.Second,
+			status: v2.RateLimitDescription_STATUS_OK,
+		},
+		{
+			name:       "no policy header",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"Ratelimit": `"default";r=5;t=10`}),
+			limit:      0, remaining: 5, resetIn: 10 * time.Second,
+			status: v2.RateLimitDescription_STATUS_OK,
+		},
+		{
+			name:       "429 is over limit",
+			statusCode: http.StatusTooManyRequests,
+			header:     header(map[string]string{"Ratelimit": `"default";r=0;t=42`, "Ratelimit-Policy": `"default";q=1200;w=300`}),
+			limit:      1200, remaining: 0, resetIn: 42 * time.Second,
+			status: v2.RateLimitDescription_STATUS_OVERLIMIT,
+		},
+		{
+			name:       "tie on remaining goes to the later reset",
+			statusCode: http.StatusTooManyRequests,
+			header:     header(map[string]string{"Ratelimit": `"burst";r=0;t=1, "default";r=0;t=300`, "Ratelimit-Policy": `"burst";q=10;w=5, "default";q=1200;w=300`}),
+			limit:      1200, remaining: 0, resetIn: 300 * time.Second,
+			status: v2.RateLimitDescription_STATUS_OVERLIMIT,
+		},
+		{
+			name:       "zero remaining on a success is not over the limit",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"Ratelimit": `"default";r=0;t=30`}),
+			limit:      0, remaining: 0, resetIn: 30 * time.Second,
+			status: v2.RateLimitDescription_STATUS_UNSPECIFIED,
+		},
+		{
+			name:       "item without t has no reset",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"Ratelimit": `"default";r=5`}),
+			limit:      0, remaining: 5, noReset: true,
+			status: v2.RateLimitDescription_STATUS_OK,
+		},
+		{
+			name:       "separate headers fall back to the SDK parser",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"X-Ratelimit-Limit": "100", "X-Ratelimit-Remaining": "7"}),
+			limit:      100, remaining: 7,
+			status: v2.RateLimitDescription_STATUS_OK,
+		},
+		{
+			name:       "malformed structured header falls back",
+			statusCode: http.StatusOK,
+			header:     header(map[string]string{"Ratelimit": `"default";r=abc;t=`}),
+			limit:      0, remaining: 0,
+			status: v2.RateLimitDescription_STATUS_UNSPECIFIED,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc := extractRateLimit(tt.statusCode, tt.header, now)
+			require.NotNil(t, desc)
+			assert.Equal(t, tt.limit, desc.GetLimit())
+			assert.Equal(t, tt.remaining, desc.GetRemaining())
+			assert.Equal(t, tt.status, desc.GetStatus())
+			if tt.noReset {
+				assert.Nil(t, desc.GetResetAt())
+			}
+			if tt.resetIn > 0 {
+				assert.True(t, now.Add(tt.resetIn).Equal(desc.GetResetAt().AsTime()), "reset at %s", desc.GetResetAt().AsTime())
+			}
+		})
+	}
+}
+
+func TestExtractRateLimitReadsEveryHeaderLine(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	h := http.Header{}
+	h.Add("Ratelimit", `"default";r=900;t=100`)
+	h.Add("Ratelimit", `"burst";r=0;t=2`)
+
+	desc := extractRateLimit(http.StatusOK, h, now)
+	require.NotNil(t, desc)
+	assert.Equal(t, int64(0), desc.GetRemaining())
+	assert.True(t, now.Add(2*time.Second).Equal(desc.GetResetAt().AsTime()))
+}
+
+func TestExtractRateLimitPrefersLaterRetryAfterOn429(t *testing.T) {
+	now := time.Now()
+	h := http.Header{}
+	h.Set("Ratelimit", `"default";r=0;t=1`)
+	h.Set("Retry-After", "300")
+
+	desc := extractRateLimit(http.StatusTooManyRequests, h, now)
+	require.NotNil(t, desc)
+	assert.WithinDuration(t, now.Add(300*time.Second), desc.GetResetAt().AsTime(), 5*time.Second)
+
+	// A Retry-After earlier than the structured reset does not shorten it.
+	h.Set("Ratelimit", `"default";r=0;t=600`)
+	desc = extractRateLimit(http.StatusTooManyRequests, h, now)
+	require.NotNil(t, desc)
+	assert.True(t, now.Add(600*time.Second).Equal(desc.GetResetAt().AsTime()))
+}
+
+func TestMalformedRateLimitHeaderDoesNotFailRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Ratelimit", `"default";r=;t=oops`)
+		w.Header().Set("X-Ratelimit-Limit", "not-a-number")
+		_, _ = w.Write([]byte(`{"success":true,"errors":[],"messages":[],"result":{}}`))
+	}))
+	defer server.Close()
+
+	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
+	require.NoError(t, err)
+	_, err = c.AccessKeysConfig(context.Background())
+	require.NoError(t, err)
+}
+
+// TestRateLimitedErrorCarriesCloudflareReset checks that a 429's gRPC status
+// carries the reset time from Cloudflare's Ratelimit header, which the SDK's
+// retryer uses to decide how long to wait.
+func TestRateLimitedErrorCarriesCloudflareReset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Ratelimit", `"default";r=0;t=120`)
+		w.Header().Set("Ratelimit-Policy", `"default";q=1200;w=300`)
+		writeError(w, http.StatusTooManyRequests, "Rate limited")
+	}))
+	defer server.Close()
+
+	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
+	require.NoError(t, err)
+
+	before := time.Now()
+	_, _, _, err = c.ListAccessUsers(context.Background(), "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Rate limited")
+
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.Unavailable, st.Code())
+
+	var desc *v2.RateLimitDescription
+	for _, detail := range st.Details() {
+		if d, ok := detail.(*v2.RateLimitDescription); ok {
+			desc = d
+			break
+		}
+	}
+	require.NotNil(t, desc, "expected rate-limit details on the status")
+	assert.Equal(t, v2.RateLimitDescription_STATUS_OVERLIMIT, desc.GetStatus())
+	assert.Equal(t, int64(1200), desc.GetLimit())
+	assert.Equal(t, int64(0), desc.GetRemaining())
+	assert.WithinDuration(t, before.Add(120*time.Second), desc.GetResetAt().AsTime(), 5*time.Second)
 }

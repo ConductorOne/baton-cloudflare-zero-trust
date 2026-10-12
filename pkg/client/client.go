@@ -155,6 +155,9 @@ func (c *Client) doRequest(ctx context.Context, method string, path []string, op
 	}
 	annos := rateLimitAnnotations(desc)
 	if err != nil {
+		if resp != nil && resp.StatusCode == http.StatusTooManyRequests && desc != nil {
+			err = withRateLimitDetails(err, desc)
+		}
 		return nil, annos, err
 	}
 
