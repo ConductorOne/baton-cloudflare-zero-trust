@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 )
@@ -90,37 +90,37 @@ func TestRevokeDecision(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		group cloudflare.AccessGroup
+		group client.AccessGroup
 		want  revokeOutcome
 	}{
 		{
 			name:  "own email rule is the only source of membership",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), emailRule("other@x.com")}},
+			group: client.AccessGroup{Include: []interface{}{emailRule(email), emailRule("other@x.com")}},
 			want:  revokeRemoveRule,
 		},
 		{
 			name:  "email rule alongside a domain rule that still admits them",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), emailDomainRule("x.com")}},
+			group: client.AccessGroup{Include: []interface{}{emailRule(email), emailDomainRule("x.com")}},
 			want:  revokeBlocked,
 		},
 		{
 			name:  "email rule alongside an everyone rule",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), everyoneRule()}},
+			group: client.AccessGroup{Include: []interface{}{emailRule(email), everyoneRule()}},
 			want:  revokeBlocked,
 		},
 		{
 			name:  "membership comes only from a domain rule",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailDomainRule("x.com")}},
+			group: client.AccessGroup{Include: []interface{}{emailDomainRule("x.com")}},
 			want:  revokeBlocked,
 		},
 		{
 			name:  "no rule admits them",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule("other@x.com"), emailDomainRule("y.com")}},
+			group: client.AccessGroup{Include: []interface{}{emailRule("other@x.com"), emailDomainRule("y.com")}},
 			want:  revokeNotAMember,
 		},
 		{
 			name:  "a nested group rule is not evaluated, so it does not block the revoke",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email), groupRule("eng")}},
+			group: client.AccessGroup{Include: []interface{}{emailRule(email), groupRule("eng")}},
 			want:  revokeRemoveRule,
 		},
 		{
@@ -128,7 +128,7 @@ func TestRevokeDecision(t *testing.T) {
 			// this user as still a member and send the operator after a rule
 			// that is not granting them anything.
 			name: "a broad Include rule the user is excluded from",
-			group: cloudflare.AccessGroup{
+			group: client.AccessGroup{
 				Include: []interface{}{emailDomainRule("x.com")},
 				Exclude: []interface{}{emailRule(email)},
 			},
@@ -136,7 +136,7 @@ func TestRevokeDecision(t *testing.T) {
 		},
 		{
 			name: "a broad Include rule the user fails Require for",
-			group: cloudflare.AccessGroup{
+			group: client.AccessGroup{
 				Include: []interface{}{everyoneRule()},
 				Require: []interface{}{emailDomainRule("corp.com")},
 			},
@@ -152,7 +152,7 @@ func TestRevokeDecision(t *testing.T) {
 	}
 
 	t.Run("their own email rule but Require keeps them out", func(t *testing.T) {
-		grp := cloudflare.AccessGroup{
+		grp := client.AccessGroup{
 			Include: []interface{}{emailRule(email)},
 			Require: []interface{}{emailDomainRule("corp.com")},
 		}
@@ -164,7 +164,7 @@ func TestRevokeDecision(t *testing.T) {
 	})
 
 	t.Run("their own email rule but Exclude keeps them out", func(t *testing.T) {
-		grp := cloudflare.AccessGroup{
+		grp := client.AccessGroup{
 			Include: []interface{}{emailRule(email)},
 			Exclude: []interface{}{emailRule(email)},
 		}
@@ -177,7 +177,7 @@ func TestRevokeDecision(t *testing.T) {
 	// Cloudflare rejects a group with an empty Include list, so Revoke guards
 	// on the filtered list being empty. This pins the case that reaches it.
 	t.Run("revoking the only member empties the include list", func(t *testing.T) {
-		grp := cloudflare.AccessGroup{Include: []interface{}{emailRule(email)}}
+		grp := client.AccessGroup{Include: []interface{}{emailRule(email)}}
 
 		include, got := revokeDecision(&grp, email)
 
@@ -203,31 +203,31 @@ func TestHasEvaluableRule(t *testing.T) {
 // rule that would then block their revoke.
 func TestIsMember(t *testing.T) {
 	const email = "jane@x.com"
-	user := cloudflare.AccessUser{Email: email}
+	user := client.AccessUser{Email: email}
 
 	tests := []struct {
 		name  string
-		group cloudflare.AccessGroup
+		group client.AccessGroup
 		want  bool
 	}{
 		{
 			name:  "named directly",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email)}},
+			group: client.AccessGroup{Include: []interface{}{emailRule(email)}},
 			want:  true,
 		},
 		{
 			name:  "admitted by everyone without a rule of their own",
-			group: cloudflare.AccessGroup{Include: []interface{}{everyoneRule()}},
+			group: client.AccessGroup{Include: []interface{}{everyoneRule()}},
 			want:  true,
 		},
 		{
 			name:  "admitted by their email domain",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailDomainRule("x.com")}},
+			group: client.AccessGroup{Include: []interface{}{emailDomainRule("x.com")}},
 			want:  true,
 		},
 		{
 			name: "named directly but excluded",
-			group: cloudflare.AccessGroup{
+			group: client.AccessGroup{
 				Include: []interface{}{emailRule(email)},
 				Exclude: []interface{}{emailRule(email)},
 			},
@@ -235,7 +235,7 @@ func TestIsMember(t *testing.T) {
 		},
 		{
 			name: "named directly but fails Require",
-			group: cloudflare.AccessGroup{
+			group: client.AccessGroup{
 				Include: []interface{}{emailRule(email)},
 				Require: []interface{}{emailDomainRule("corp.com")},
 			},
@@ -243,19 +243,19 @@ func TestIsMember(t *testing.T) {
 		},
 		{
 			name:  "not named at all",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule("other@x.com")}},
+			group: client.AccessGroup{Include: []interface{}{emailRule("other@x.com")}},
 			want:  false,
 		},
 		{
 			// Nesting is resolved by C1 graph expansion, not here, so this
 			// predicate cannot see membership that comes only through it.
 			name:  "member only through a nested group is not visible here",
-			group: cloudflare.AccessGroup{Include: []interface{}{groupRule("eng")}},
+			group: client.AccessGroup{Include: []interface{}{groupRule("eng")}},
 			want:  false,
 		},
 		{
 			name:  "an unevaluable Require does not keep them out",
-			group: cloudflare.AccessGroup{Include: []interface{}{emailRule(email)}, Require: []interface{}{geoRule("US")}},
+			group: client.AccessGroup{Include: []interface{}{emailRule(email)}, Require: []interface{}{geoRule("US")}},
 			want:  true,
 		},
 	}

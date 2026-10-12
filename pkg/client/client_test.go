@@ -3,14 +3,12 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
-	"github.com/cloudflare/cloudflare-go"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,16 +35,16 @@ func TestNextPageToken(t *testing.T) {
 	tests := []struct {
 		name     string
 		page     int
-		info     *cloudflare.ResultInfo
+		info     *resultInfo
 		received int
 		want     string
 	}{
-		{name: "total_pages, more", page: 1, info: &cloudflare.ResultInfo{TotalPages: 3}, received: PageSize, want: "2"},
-		{name: "total_pages, last", page: 3, info: &cloudflare.ResultInfo{TotalPages: 3}, received: 1, want: ""},
-		{name: "total_count fallback, more", page: 1, info: &cloudflare.ResultInfo{Total: PageSize + 1, PerPage: PageSize}, received: PageSize, want: "2"},
-		{name: "total_count fallback, last", page: 2, info: &cloudflare.ResultInfo{Total: PageSize + 1, PerPage: PageSize}, received: 1, want: ""},
-		{name: "no info, full page", page: 1, info: nil, received: PageSize, want: "2"},
-		{name: "no info, short page", page: 1, info: &cloudflare.ResultInfo{}, received: 3, want: ""},
+		{name: "total_pages, more", page: 1, info: &resultInfo{TotalPages: 3}, received: pageSize, want: "2"},
+		{name: "total_pages, last", page: 3, info: &resultInfo{TotalPages: 3}, received: 1, want: ""},
+		{name: "total_count fallback, more", page: 1, info: &resultInfo{Total: pageSize + 1, PerPage: pageSize}, received: pageSize, want: "2"},
+		{name: "total_count fallback, last", page: 2, info: &resultInfo{Total: pageSize + 1, PerPage: pageSize}, received: 1, want: ""},
+		{name: "no info, full page", page: 1, info: nil, received: pageSize, want: "2"},
+		{name: "no info, short page", page: 1, info: &resultInfo{}, received: 3, want: ""},
 		{name: "no info, empty page", page: 4, info: nil, received: 0, want: ""},
 	}
 	for _, tt := range tests {
@@ -78,36 +76,7 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 
 	c, err := New(ctx, "acct", "token", "", "", "")
 	require.NoError(t, err)
-	require.NotNil(t, c.api)
-}
-
-func TestMapCloudflareError(t *testing.T) {
-	assert.NoError(t, mapCloudflareError(nil))
-
-	plain := errors.New("connection reset")
-	assert.Equal(t, plain, mapCloudflareError(plain))
-
-	existing := status.Error(codes.Unavailable, "already classified")
-	assert.Equal(t, existing, mapCloudflareError(existing))
-
-	tests := []struct {
-		err  error
-		code codes.Code
-	}{
-		{err: &cloudflare.AuthorizationError{}, code: codes.Unauthenticated},
-		{err: &cloudflare.AuthenticationError{}, code: codes.PermissionDenied},
-		{err: &cloudflare.NotFoundError{}, code: codes.NotFound},
-		{err: &cloudflare.RatelimitError{}, code: codes.Unavailable},
-		{err: &cloudflare.RequestError{}, code: codes.InvalidArgument},
-	}
-	for _, tt := range tests {
-		t.Run(fmt.Sprintf("%T", tt.err), func(t *testing.T) {
-			mapped := mapCloudflareError(fmt.Errorf("wrapped: %w", tt.err))
-			st, ok := status.FromError(mapped)
-			require.True(t, ok)
-			assert.Equal(t, tt.code, st.Code())
-		})
-	}
+	require.NotNil(t, c.http)
 }
 
 // writeMembersPage serves one page of account members in Cloudflare's
@@ -127,7 +96,7 @@ func writeMembersPage(t *testing.T, w http.ResponseWriter, page, totalPages int)
 		},
 		"result_info": map[string]interface{}{
 			"page":        page,
-			"per_page":    PageSize,
+			"per_page":    pageSize,
 			"count":       1,
 			"total_count": totalPages,
 			"total_pages": totalPages,
@@ -139,7 +108,7 @@ func TestListAccountMembersPagesAndAnnotates(t *testing.T) {
 	const totalPages = 2
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/accounts/acct/members", r.URL.Path)
-		require.Equal(t, strconv.Itoa(PageSize), r.URL.Query().Get("per_page"))
+		require.Equal(t, strconv.Itoa(pageSize), r.URL.Query().Get("per_page"))
 		page, err := strconv.Atoi(r.URL.Query().Get("page"))
 		require.NoError(t, err)
 		writeMembersPage(t, w, page, totalPages)
@@ -169,24 +138,158 @@ func TestListAccountMembersPagesAndAnnotates(t *testing.T) {
 	assert.Empty(t, next)
 }
 
+// writeError serves a Cloudflare error envelope with the given status.
+func writeError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	_, _ = fmt.Fprintf(w, `{"success":false,"errors":[{"code":10000,"message":%q}],"messages":[],"result":null}`, message)
+}
+
 func TestClientMapsAPIErrors(t *testing.T) {
+	tests := []struct {
+		status int
+		code   codes.Code
+	}{
+		{status: http.StatusUnauthorized, code: codes.Unauthenticated},
+		{status: http.StatusForbidden, code: codes.PermissionDenied},
+		{status: http.StatusNotFound, code: codes.NotFound},
+		{status: http.StatusTooManyRequests, code: codes.Unavailable},
+		{status: http.StatusInternalServerError, code: codes.Unavailable},
+		{status: http.StatusServiceUnavailable, code: codes.Unavailable},
+		{status: http.StatusBadRequest, code: codes.InvalidArgument},
+	}
+	for _, tt := range tests {
+		t.Run(strconv.Itoa(tt.status), func(t *testing.T) {
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				w.Header().Set("Retry-After", "30")
+				writeError(w, tt.status, "Authentication error")
+			}))
+			defer server.Close()
+
+			c, err := New(context.Background(), "acct", "token", "", "", server.URL)
+			require.NoError(t, err)
+
+			_, _, annos, err := c.ListAccessGroups(context.Background(), "")
+			require.Error(t, err)
+			st, ok := status.FromError(err)
+			require.True(t, ok)
+			assert.Equal(t, tt.code, st.Code())
+			assert.Contains(t, err.Error(), "10000: Authentication error", "the API's error message is kept")
+			assert.Equal(t, 1, requests, "the client does not retry; the SDK does")
+			assert.NotEmpty(t, annos, "rate-limit annotation is attached even on failure")
+		})
+	}
+}
+
+func TestClientRejectsUnsuccessfulEnvelope(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"success":false,"errors":[{"code":10000,"message":"Authentication error"}],"messages":[],"result":null}`))
+		writeError(w, http.StatusOK, "something went wrong")
 	}))
 	defer server.Close()
 
 	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
 	require.NoError(t, err)
 
-	_, annos, err := c.ListAccessGroups(context.Background())
+	_, err = c.AccessKeysConfig(context.Background())
 	require.Error(t, err)
-	st, ok := status.FromError(err)
-	require.True(t, ok)
-	assert.Equal(t, codes.PermissionDenied, st.Code())
+	assert.Contains(t, err.Error(), "something went wrong")
+}
 
-	var forbidden *cloudflare.AuthenticationError
-	assert.ErrorAs(t, err, &forbidden, "the typed cloudflare-go error stays in the chain")
-	assert.NotEmpty(t, annos, "rate-limit annotation is attached even on failure")
+func TestClientAuthHeaders(t *testing.T) {
+	tests := []struct {
+		name              string
+		token, key, email string
+		wantAuth, wantKey string
+		wantEmail         string
+	}{
+		{name: "token", token: "tok", wantAuth: "Bearer tok"},
+		{name: "token wins over key", token: "tok", key: "k", email: "e@x.com", wantAuth: "Bearer tok"},
+		{name: "key and email", key: "k", email: "e@x.com", wantKey: "k", wantEmail: "e@x.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tt.wantAuth, r.Header.Get("Authorization"))
+				assert.Equal(t, tt.wantKey, r.Header.Get("X-Auth-Key"))
+				assert.Equal(t, tt.wantEmail, r.Header.Get("X-Auth-Email"))
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"success":true,"errors":[],"messages":[],"result":{}}`))
+			}))
+			defer server.Close()
+
+			c, err := New(context.Background(), "acct", tt.token, tt.key, tt.email, server.URL)
+			require.NoError(t, err)
+			_, err = c.AccessKeysConfig(context.Background())
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestGetAccessGroupBypassesCache checks that a read feeding a write is not
+// served from uhttp's GET cache, which would let back-to-back grants on one
+// group overwrite each other.
+func TestGetAccessGroupBypassesCache(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		require.Equal(t, "/accounts/acct/access/groups/g1", r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"success":true,"errors":[],"messages":[],"result":{"id":"g1","name":"v%d"}}`, requests)
+	}))
+	defer server.Close()
+
+	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
+	require.NoError(t, err)
+
+	first, _, err := c.GetAccessGroup(context.Background(), "g1")
+	require.NoError(t, err)
+	second, _, err := c.GetAccessGroup(context.Background(), "g1")
+	require.NoError(t, err)
+	assert.Equal(t, "v1", first.Name)
+	assert.Equal(t, "v2", second.Name)
+}
+
+func TestUpdateAccessGroupIncludeKeepsOtherFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodPut, r.Method)
+		require.Equal(t, "/accounts/acct/access/groups/g1", r.URL.Path)
+		var body map[string]interface{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		assert.Equal(t, "Engineering", body["name"])
+		assert.Equal(t, []interface{}{map[string]interface{}{"email": map[string]interface{}{"email": "new@x.com"}}}, body["include"])
+		assert.Equal(t, []interface{}{map[string]interface{}{"geo": map[string]interface{}{"country_code": "US"}}}, body["require"])
+		assert.Equal(t, []interface{}{}, body["exclude"])
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"errors":[],"messages":[],"result":{"id":"g1"}}`))
+	}))
+	defer server.Close()
+
+	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
+	require.NoError(t, err)
+
+	group := &AccessGroup{
+		ID:      "g1",
+		Name:    "Engineering",
+		Include: []interface{}{map[string]interface{}{"email": map[string]interface{}{"email": "old@x.com"}}},
+		Require: []interface{}{map[string]interface{}{"geo": map[string]interface{}{"country_code": "US"}}},
+		Exclude: []interface{}{},
+	}
+	_, err = c.UpdateAccessGroupInclude(context.Background(), group, []interface{}{map[string]interface{}{"email": map[string]interface{}{"email": "new@x.com"}}})
+	require.NoError(t, err)
+}
+
+func TestUpdateAccountMemberRequiresRolesOrPolicies(t *testing.T) {
+	c, err := New(context.Background(), "acct", "token", "", "", "")
+	require.NoError(t, err)
+
+	_, _, err = c.UpdateAccountMember(context.Background(), "m1", AccountMember{})
+	require.ErrorIs(t, err, ErrMissingMemberRolesOrPolicies)
+
+	_, _, err = c.UpdateAccountMember(context.Background(), "m1", AccountMember{
+		Roles:    []AccountRole{{ID: "r1"}},
+		Policies: []Policy{{Access: "allow"}},
+	})
+	require.ErrorIs(t, err, ErrMissingMemberRolesOrPolicies)
 }

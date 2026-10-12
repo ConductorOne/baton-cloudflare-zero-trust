@@ -3,7 +3,7 @@ package connector
 import (
 	"testing"
 
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,8 +27,8 @@ func groupRule(id string) map[string]interface{} {
 	return map[string]interface{}{"group": map[string]interface{}{"id": id}}
 }
 
-func user(email string) cloudflare.AccessUser {
-	return cloudflare.AccessUser{Email: email}
+func user(email string) client.AccessUser {
+	return client.AccessUser{Email: email}
 }
 
 func TestRuleMatchesUser(t *testing.T) {
@@ -59,13 +59,13 @@ func TestSplitIncludeRules(t *testing.T) {
 }
 
 func TestSatisfiesRequireExclude_NoRules(t *testing.T) {
-	grp := &cloudflare.AccessGroup{ID: "g1"}
+	grp := &client.AccessGroup{ID: "g1"}
 
 	require.True(t, satisfiesRequireExclude(grp, user("a@x.com")), "a user with no require/exclude rules is satisfied by default")
 }
 
 func TestSatisfiesRequireExclude_RequireAndExclude(t *testing.T) {
-	grp := &cloudflare.AccessGroup{
+	grp := &client.AccessGroup{
 		ID:      "g1",
 		Require: []interface{}{emailDomainRule("x.com")},
 		Exclude: []interface{}{emailRule("blocked@x.com")},
@@ -85,55 +85,55 @@ func TestSatisfiesRequireExclude_RequireAndExclude(t *testing.T) {
 func TestSatisfiesRequireExclude_UnevaluableRulesAreSkipped(t *testing.T) {
 	tests := []struct {
 		name  string
-		group *cloudflare.AccessGroup
+		group *client.AccessGroup
 		want  bool
 		why   string
 	}{
 		{
 			"contextual require does not narrow membership",
-			&cloudflare.AccessGroup{Require: []interface{}{geoRule("US")}},
+			&client.AccessGroup{Require: []interface{}{geoRule("US")}},
 			true,
 			"a geo rule constrains the request, not who the policy grants access to",
 		},
 		{
 			"nested group require is skipped",
-			&cloudflare.AccessGroup{Require: []interface{}{groupRule("eng")}},
+			&client.AccessGroup{Require: []interface{}{groupRule("eng")}},
 			true,
 			"an unresolvable identity rule must not empty the group",
 		},
 		{
 			"idp claim require is skipped",
-			&cloudflare.AccessGroup{Require: []interface{}{map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}}}},
+			&client.AccessGroup{Require: []interface{}{map[string]interface{}{"okta": map[string]interface{}{"name": "eng"}}}},
 			true,
 			"",
 		},
 		{
 			"evaluable require still gates",
-			&cloudflare.AccessGroup{Require: []interface{}{emailRule("someone-else@x.com")}},
+			&client.AccessGroup{Require: []interface{}{emailRule("someone-else@x.com")}},
 			false,
 			"an email rule names identities and must be enforced",
 		},
 		{
 			"evaluable require alongside a skipped one still gates",
-			&cloudflare.AccessGroup{Require: []interface{}{geoRule("US"), emailRule("someone-else@x.com")}},
+			&client.AccessGroup{Require: []interface{}{geoRule("US"), emailRule("someone-else@x.com")}},
 			false,
 			"",
 		},
 		{
 			"contextual exclude never blocks",
-			&cloudflare.AccessGroup{Exclude: []interface{}{geoRule("US")}},
+			&client.AccessGroup{Exclude: []interface{}{geoRule("US")}},
 			true,
 			"",
 		},
 		{
 			"nested group exclude is not enforced",
-			&cloudflare.AccessGroup{Exclude: []interface{}{groupRule("banned")}},
+			&client.AccessGroup{Exclude: []interface{}{groupRule("banned")}},
 			true,
 			"",
 		},
 		{
 			"evaluable exclude still blocks",
-			&cloudflare.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
+			&client.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
 			false,
 			"",
 		},
@@ -208,59 +208,59 @@ func TestDescribeAccessRules(t *testing.T) {
 func TestRestrictsNestedExpansion(t *testing.T) {
 	tests := []struct {
 		name  string
-		group cloudflare.AccessGroup
+		group client.AccessGroup
 		want  bool
 	}{
 		{
 			name:  "no require or exclude",
-			group: cloudflare.AccessGroup{Include: []interface{}{groupRule("eng")}},
+			group: client.AccessGroup{Include: []interface{}{groupRule("eng")}},
 			want:  false,
 		},
 		{
 			name:  "require everyone only",
-			group: cloudflare.AccessGroup{Require: []interface{}{everyoneRule()}},
+			group: client.AccessGroup{Require: []interface{}{everyoneRule()}},
 			want:  false,
 		},
 		{
 			name:  "require email narrows the set",
-			group: cloudflare.AccessGroup{Require: []interface{}{emailRule("a@x.com")}},
+			group: client.AccessGroup{Require: []interface{}{emailRule("a@x.com")}},
 			want:  true,
 		},
 		{
 			name:  "require everyone alongside a narrowing rule",
-			group: cloudflare.AccessGroup{Require: []interface{}{everyoneRule(), emailDomainRule("x.com")}},
+			group: client.AccessGroup{Require: []interface{}{everyoneRule(), emailDomainRule("x.com")}},
 			want:  true,
 		},
 		{
 			// A skipped rule filters nothing, so it cannot filter the
 			// expanded set either.
 			name:  "require references a group",
-			group: cloudflare.AccessGroup{Require: []interface{}{groupRule("eng")}},
+			group: client.AccessGroup{Require: []interface{}{groupRule("eng")}},
 			want:  false,
 		},
 		{
 			name:  "contextual require does not restrict",
-			group: cloudflare.AccessGroup{Require: []interface{}{geoRule("US")}},
+			group: client.AccessGroup{Require: []interface{}{geoRule("US")}},
 			want:  false,
 		},
 		{
 			name:  "contextual exclude does not restrict",
-			group: cloudflare.AccessGroup{Exclude: []interface{}{geoRule("US")}},
+			group: client.AccessGroup{Exclude: []interface{}{geoRule("US")}},
 			want:  false,
 		},
 		{
 			name:  "an evaluable exclude restricts",
-			group: cloudflare.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
+			group: client.AccessGroup{Exclude: []interface{}{emailRule("a@x.com")}},
 			want:  true,
 		},
 		{
 			name:  "exclude wins over a harmless require",
-			group: cloudflare.AccessGroup{Require: []interface{}{everyoneRule()}, Exclude: []interface{}{everyoneRule()}},
+			group: client.AccessGroup{Require: []interface{}{everyoneRule()}, Exclude: []interface{}{everyoneRule()}},
 			want:  true,
 		},
 		{
 			name:  "malformed require rule is skipped, not restrictive",
-			group: cloudflare.AccessGroup{Require: []interface{}{"garbage"}},
+			group: client.AccessGroup{Require: []interface{}{"garbage"}},
 			want:  false,
 		},
 	}

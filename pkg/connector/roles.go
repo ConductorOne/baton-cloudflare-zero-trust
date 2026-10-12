@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cloudflare/cloudflare-go"
 	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -27,17 +26,12 @@ type roleBuilder struct {
 // when constructing grants in Grants().
 const roleAssignmentEntitlement = "assigned"
 
-var (
-	ErrMissingAccountID = client.ErrMissingAccountID
-	ErrMissingMemberID  = client.ErrMissingMemberID
-)
-
 func (r *roleBuilder) ResourceType(_ context.Context) *v2.ResourceType {
 	return r.resourceType
 }
 
 // getRoleResource creates a new connector resource for a cloudflare role.
-func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceTypeRole *v2.ResourceType, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func getRoleResource(ctx context.Context, role client.AccountRole, resourceTypeRole *v2.ResourceType, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	profile := map[string]interface{}{
 		"role_id":   role.ID,
 		"role_name": role.Name,
@@ -60,8 +54,8 @@ func getRoleResource(ctx context.Context, role cloudflare.AccountRole, resourceT
 
 // List returns all the roles from the database as resource objects.
 // Roles include a RoleTrait because they are the 'shape' of a standard role.
-func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	roles, annos, err := r.client.ListAccountRoles(ctx)
+func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+	roles, next, annos, err := r.client.ListAccountRoles(ctx, opts.PageToken.Token)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list roles")
 	}
@@ -76,7 +70,7 @@ func (r *roleBuilder) List(ctx context.Context, parentId *v2.ResourceId, _ rs.Sy
 		resources = append(resources, resource)
 	}
 
-	return resources, &rs.SyncOpResults{Annotations: annos}, nil
+	return resources, &rs.SyncOpResults{NextPageToken: next, Annotations: annos}, nil
 }
 
 // Entitlements returns nil. Role entitlements are declared statically via
@@ -133,7 +127,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 
 	account, _, err := r.client.AccountMember(ctx, memberId)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err, "failed to get account member")
 	}
 
 	roleId := entitlement.Resource.Id.Resource
@@ -144,16 +138,16 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 	if len(account.Policies) > 0 {
 		group, _, err := r.client.RolePermissionGroup(ctx, roleId)
 		if err != nil {
-			return nil, err
+			return nil, wrapError(err, "failed to get role permission group")
 		}
 
-		newPolicy := cloudflare.Policy{
-			PermissionGroups: []cloudflare.PermissionGroup{{ID: group.ID}},
-			ResourceGroups:   []cloudflare.ResourceGroup{cloudflare.NewResourceGroupForAccount(cloudflare.Account{ID: r.accountId})},
+		newPolicy := client.Policy{
+			PermissionGroups: []client.PermissionGroup{{ID: group.ID}},
+			ResourceGroups:   []client.ResourceGroup{client.NewResourceGroupForAccount(r.accountId)},
 			Access:           "allow",
 		}
 
-		member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+		member, _, err := r.client.UpdateAccountMember(ctx, memberId, client.AccountMember{
 			Policies: append(account.Policies, newPolicy),
 		})
 		if err != nil {
@@ -168,14 +162,14 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		return nil, nil
 	}
 
-	roles := []cloudflare.AccountRole{{ID: roleId}}
+	roles := []client.AccountRole{{ID: roleId}}
 	for _, role := range account.Roles {
-		roles = append(roles, cloudflare.AccountRole{
+		roles = append(roles, client.AccountRole{
 			ID: role.ID,
 		})
 	}
 
-	member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+	member, _, err := r.client.UpdateAccountMember(ctx, memberId, client.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {
@@ -230,7 +224,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 
 	account, _, err := r.client.AccountMember(ctx, memberId)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err, "failed to get account member")
 	}
 
 	// See Grant: a member with any existing Policies is on the Domain
@@ -239,7 +233,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	if len(account.Policies) > 0 {
 		group, _, err := r.client.RolePermissionGroup(ctx, roleId)
 		if err != nil {
-			return nil, err
+			return nil, wrapError(err, "failed to get role permission group")
 		}
 
 		// Strip only the matching permission group from each policy - a
@@ -247,9 +241,9 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		// dropping the whole policy would revoke unrelated grants it also
 		// carries. Only drop a policy if removing the group leaves it with
 		// no permission groups at all.
-		policies := make([]cloudflare.Policy, 0, len(account.Policies))
+		policies := make([]client.Policy, 0, len(account.Policies))
 		for _, policy := range account.Policies {
-			remaining := make([]cloudflare.PermissionGroup, 0, len(policy.PermissionGroups))
+			remaining := make([]client.PermissionGroup, 0, len(policy.PermissionGroups))
 			for _, pg := range policy.PermissionGroups {
 				if pg.ID == group.ID {
 					continue
@@ -263,7 +257,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 			policies = append(policies, policy)
 		}
 
-		member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+		member, _, err := r.client.UpdateAccountMember(ctx, memberId, client.AccountMember{
 			Policies: policies,
 		})
 		if err != nil {
@@ -278,16 +272,16 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		return nil, nil
 	}
 
-	roles := []cloudflare.AccountRole{}
+	roles := []client.AccountRole{}
 	for _, role := range account.Roles {
 		if roleId != role.ID {
-			roles = append(roles, cloudflare.AccountRole{
+			roles = append(roles, client.AccountRole{
 				ID: role.ID,
 			})
 		}
 	}
 
-	member, _, err := r.client.UpdateAccountMember(ctx, memberId, cloudflare.AccountMember{
+	member, _, err := r.client.UpdateAccountMember(ctx, memberId, client.AccountMember{
 		Roles: roles,
 	})
 	if err != nil {

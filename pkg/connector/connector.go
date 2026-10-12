@@ -19,8 +19,8 @@ type Connector struct {
 // ResourceSyncers returns a ResourceSyncerV2 for each resource type that should be synced from the upstream service.
 func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncerV2 {
 	return []connectorbuilder.ResourceSyncerV2{
-		newUserBuilder(d.client, d.accountId),
-		newGroupBuilder(d.client, d.accountId),
+		newUserBuilder(d.client),
+		newGroupBuilder(d.client),
 		newRoleBuilder(d.client, d.accountId),
 	}
 }
@@ -36,7 +36,7 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 // Validate is called to ensure that the connector is properly configured. It should exercise any API credentials
 // to be sure that they are valid.
 func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, _, err := d.client.AccessKeysConfig(ctx)
+	_, err := d.client.AccessKeysConfig(ctx)
 	if err != nil {
 		return nil, wrapError(err, "failed to validate access keys config")
 	}

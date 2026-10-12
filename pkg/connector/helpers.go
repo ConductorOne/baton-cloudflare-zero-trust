@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudflare/cloudflare-go"
 	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -77,7 +76,7 @@ func getValueFromUserTrait(resource *v2.Resource, profileField string) (string, 
 // user ID server-side, so this always scans until a match or the last page.
 // A nil member with a nil error means no account member has this user ID —
 // e.g. the ID belongs to a pure Access user with no account membership.
-func findMemberByUserID(ctx context.Context, c *client.Client, userId string) (*cloudflare.AccountMember, error) {
+func findMemberByUserID(ctx context.Context, c *client.Client, userId string) (*client.AccountMember, error) {
 	pageToken := ""
 	for {
 		members, next, _, err := c.ListAccountMembers(ctx, pageToken)

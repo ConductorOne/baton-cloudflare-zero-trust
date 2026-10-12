@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudflare/cloudflare-go"
 	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -35,14 +34,13 @@ const (
 type userBuilder struct {
 	resourceType *v2.ResourceType
 	client       *client.Client
-	accountId    string
 }
 
 func (o *userBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 	return userResourceType
 }
 
-func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
+func newUserResource(user client.AccessUser) (*v2.Resource, error) {
 	firstName, lastName := rs.SplitFullName(user.Name)
 	profile := map[string]interface{}{
 		"login":       user.Email,
@@ -57,7 +55,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 		rs.WithEmail(user.Email, true),
 	}
 
-	// cloudflare.AccessUser carries no status field, so none is set here.
+	// client.AccessUser carries no status field, so none is set here.
 	resourceOpts := []rs.ResourceOption{
 		rs.WithResourceProfile(profile),
 	}
@@ -94,7 +92,7 @@ func newUserResource(user cloudflare.AccessUser) (*v2.Resource, error) {
 // type. The member's role IDs are embedded in the profile so that
 // userBuilder.Grants can emit role assignment grants without any further
 // API calls.
-func newUserResourceFromMember(member cloudflare.AccountMember) (*v2.Resource, error) {
+func newUserResourceFromMember(member client.AccountMember) (*v2.Resource, error) {
 	firstName, lastName := member.User.FirstName, member.User.LastName
 	displayName := strings.TrimSpace(fmt.Sprintf("%s %s", firstName, lastName))
 	if displayName == "" {
@@ -178,7 +176,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 
 	switch bag.ResourceTypeID() {
 	case accessUsersPageState:
-		var users []*cloudflare.AccessUser
+		var users []*client.AccessUser
 		users, next, annos, err = o.client.ListAccessUsers(ctx, bag.PageToken())
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to list users")
@@ -195,7 +193,7 @@ func (o *userBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId,
 		}
 
 	case accountMembersPageState:
-		var members []*cloudflare.AccountMember
+		var members []*client.AccountMember
 		members, next, annos, err = o.client.ListAccountMembers(ctx, bag.PageToken())
 		if err != nil {
 			return nil, nil, wrapError(err, "failed to list members")
@@ -263,10 +261,9 @@ func (o *userBuilder) Grants(_ context.Context, resource *v2.Resource, _ rs.Sync
 	return grants, nil, nil
 }
 
-func newUserBuilder(c *client.Client, accountId string) *userBuilder {
+func newUserBuilder(c *client.Client) *userBuilder {
 	return &userBuilder{
 		resourceType: userResourceType,
 		client:       c,
-		accountId:    accountId,
 	}
 }

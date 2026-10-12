@@ -3,7 +3,7 @@ package connector
 import (
 	"strings"
 
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 )
 
 // This connector evaluates Cloudflare Access Group Include/Require/Exclude
@@ -93,7 +93,7 @@ func isContextualRule(rule interface{}) bool {
 // evaluateRule tests one rule against one user, reporting ruleUnevaluable for
 // any rule type this connector cannot resolve. See the package comment above
 // for why that is distinct from ruleNoMatch.
-func evaluateRule(rule interface{}, user cloudflare.AccessUser) ruleEvaluation {
+func evaluateRule(rule interface{}, user client.AccessUser) ruleEvaluation {
 	rm, ok := rule.(map[string]interface{})
 	if !ok {
 		return ruleUnevaluable
@@ -125,21 +125,21 @@ func evaluateRule(rule interface{}, user cloudflare.AccessUser) ruleEvaluation {
 // isEvaluableRule reports whether this connector can decide the rule against
 // a user at all, independent of any particular user.
 func isEvaluableRule(rule interface{}) bool {
-	return evaluateRule(rule, cloudflare.AccessUser{}) != ruleUnevaluable
+	return evaluateRule(rule, client.AccessUser{}) != ruleUnevaluable
 }
 
 // ruleMatchesUser reports whether a rule positively matches a user. An
 // unevaluable rule is not a match; callers that combine rules must use
 // anyRuleMatches/allRulesMatch, which skip unevaluable rules rather than
 // counting them as misses.
-func ruleMatchesUser(rule interface{}, user cloudflare.AccessUser) bool {
+func ruleMatchesUser(rule interface{}, user client.AccessUser) bool {
 	return evaluateRule(rule, user) == ruleMatch
 }
 
 // anyRuleMatches reports whether any rule matches (OR). Unevaluable rules are
 // skipped: false is the neutral element of OR, so they neither grant nor
 // withhold membership on their own.
-func anyRuleMatches(rules []interface{}, user cloudflare.AccessUser) bool {
+func anyRuleMatches(rules []interface{}, user client.AccessUser) bool {
 	for _, rule := range rules {
 		if evaluateRule(rule, user) == ruleMatch {
 			return true
@@ -151,7 +151,7 @@ func anyRuleMatches(rules []interface{}, user cloudflare.AccessUser) bool {
 // allRulesMatch reports whether every rule matches (AND). Unevaluable rules
 // are skipped: true is the neutral element of AND, so a rule this connector
 // cannot read never empties the group.
-func allRulesMatch(rules []interface{}, user cloudflare.AccessUser) bool {
+func allRulesMatch(rules []interface{}, user client.AccessUser) bool {
 	for _, rule := range rules {
 		if evaluateRule(rule, user) == ruleNoMatch {
 			return false
@@ -182,14 +182,14 @@ func hasEvaluableRule(rules []interface{}) bool {
 // Nested-group Include rules are deliberately outside this question. They are
 // resolved by C1's graph expansion rather than here, so a user who is a member
 // only through nesting is invisible to it.
-func matchesDirectRules(grp *cloudflare.AccessGroup, directInclude []interface{}, user cloudflare.AccessUser) bool {
+func matchesDirectRules(grp *client.AccessGroup, directInclude []interface{}, user client.AccessUser) bool {
 	return anyRuleMatches(directInclude, user) && satisfiesRequireExclude(grp, user)
 }
 
 // isMember reports whether the rules this connector can evaluate admit user to
 // grp, considering include as its Include list. Passing a filtered list
 // answers "would they still be a member if these rules were written".
-func isMember(grp *cloudflare.AccessGroup, include []interface{}, user cloudflare.AccessUser) bool {
+func isMember(grp *client.AccessGroup, include []interface{}, user client.AccessUser) bool {
 	direct, _ := splitIncludeRules(include)
 	return matchesDirectRules(grp, direct, user)
 }
@@ -229,7 +229,7 @@ func splitIncludeRules(rules []interface{}) ([]interface{}, []string) {
 // rules against a user that has already matched one of the group's direct
 // Include rules. Rules this connector cannot evaluate are skipped in both
 // lists — see the package doc comment above.
-func satisfiesRequireExclude(grp *cloudflare.AccessGroup, user cloudflare.AccessUser) bool {
+func satisfiesRequireExclude(grp *client.AccessGroup, user client.AccessUser) bool {
 	return allRulesMatch(grp.Require, user) && !anyRuleMatches(grp.Exclude, user)
 }
 
@@ -355,7 +355,7 @@ func emailDomain(email string) string {
 // suppressing expansion over it would withhold membership on the strength of
 // a rule that changed nothing. An "everyone" Require is likewise no
 // restriction, since every user satisfies it by definition.
-func restrictsNestedExpansion(grp *cloudflare.AccessGroup) bool {
+func restrictsNestedExpansion(grp *client.AccessGroup) bool {
 	for _, rule := range grp.Exclude {
 		if isEvaluableRule(rule) {
 			return true

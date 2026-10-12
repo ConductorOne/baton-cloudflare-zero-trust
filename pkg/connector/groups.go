@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudflare/cloudflare-go"
 	"github.com/conductorone/baton-cloudflare-zero-trust/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -23,7 +22,6 @@ const memberRole = "member"
 type groupBuilder struct {
 	resourceType *v2.ResourceType
 	client       *client.Client
-	accountId    string
 }
 
 func (g *groupBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
@@ -31,7 +29,7 @@ func (g *groupBuilder) ResourceType(ctx context.Context) *v2.ResourceType {
 }
 
 // Create a new connector resource for a Cloudflare access group.
-func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
+func newGroupResource(group *client.AccessGroup) (*v2.Resource, error) {
 	profile := map[string]interface{}{
 		"group_name": group.Name,
 		"group_id":   group.ID,
@@ -61,8 +59,8 @@ func newGroupResource(group *cloudflare.AccessGroup) (*v2.Resource, error) {
 }
 
 // List returns all the access groups from the database as resource objects.
-func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, _ rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
-	groups, annos, err := g.client.ListAccessGroups(ctx)
+func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+	groups, next, annos, err := g.client.ListAccessGroups(ctx, opts.PageToken.Token)
 	if err != nil {
 		return nil, nil, wrapError(err, "failed to list access groups")
 	}
@@ -77,7 +75,7 @@ func (g *groupBuilder) List(ctx context.Context, parentResourceID *v2.ResourceId
 		resources = append(resources, resource)
 	}
 
-	return resources, &rs.SyncOpResults{Annotations: annos}, nil
+	return resources, &rs.SyncOpResults{NextPageToken: next, Annotations: annos}, nil
 }
 
 // Entitlements is unused; StaticEntitlements defines the membership entitlement for all groups.
@@ -110,7 +108,7 @@ func (g *groupBuilder) StaticEntitlements(_ context.Context, _ rs.SyncOpAttrs) (
 
 func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	var (
-		users []cloudflare.AccessUser
+		users []client.AccessUser
 		rv    []*v2.Grant
 	)
 	group, _, err := g.client.GetAccessGroup(ctx, resource.Id.Resource)
@@ -141,7 +139,7 @@ func (g *groupBuilder) Grants(ctx context.Context, resource *v2.Resource, opts r
 			continue
 		}
 
-		accUser := cloudflare.AccessUser{
+		accUser := client.AccessUser{
 			ID:    memberUser.User.ID,
 			Name:  fmt.Sprintf("%s %s", memberUser.User.FirstName, memberUser.User.LastName),
 			Email: memberUser.User.Email,
@@ -283,7 +281,7 @@ func (g *groupBuilder) Grant(ctx context.Context, principal *v2.Resource, entitl
 		return nil, wrapError(err, "failed to get access group")
 	}
 
-	user := cloudflare.AccessUser{Email: email}
+	user := client.AccessUser{Email: email}
 
 	// Already a member is the question, not whether a rule names them
 	// specifically: on a group admitting everyone, or their email domain, they
@@ -396,8 +394,8 @@ const (
 // the next sync would undo. Require and Exclude are applied as well, so a user
 // those lists keep out is reported as not a member rather than sending an
 // operator after an Include rule that is not granting them anything.
-func revokeDecision(grp *cloudflare.AccessGroup, email string) ([]interface{}, revokeOutcome) {
-	user := cloudflare.AccessUser{Email: email}
+func revokeDecision(grp *client.AccessGroup, email string) ([]interface{}, revokeOutcome) {
+	user := client.AccessUser{Email: email}
 
 	// Nothing to revoke if the rules this connector evaluates do not admit
 	// them in the first place. Checked before anything else: a user kept out
@@ -459,10 +457,9 @@ func includeRuleEmail(rule interface{}) (string, bool) {
 	return address, true
 }
 
-func newGroupBuilder(c *client.Client, accountId string) *groupBuilder {
+func newGroupBuilder(c *client.Client) *groupBuilder {
 	return &groupBuilder{
 		resourceType: groupResourceType,
 		client:       c,
-		accountId:    accountId,
 	}
 }
