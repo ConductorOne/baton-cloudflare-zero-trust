@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -39,6 +40,10 @@ import (
 
 // defaultBaseURL is the Cloudflare v4 API root.
 const defaultBaseURL = "https://api.cloudflare.com/client/v4"
+
+// requestsPerSecond keeps a long sync under Cloudflare's 1200 requests per
+// 5 minutes per user.
+const requestsPerSecond = 4
 
 const (
 	errMissingAccountID             = "required missing account ID"
@@ -62,8 +67,11 @@ type Client struct {
 
 // New returns a Client authenticated with an API token, or with an API key and
 // email when no API token is set. Requests go through a uhttp client so they
-// get Baton logging and gRPC-coded errors. baseURL overrides the Cloudflare API
-// URL when non-empty.
+// get Baton logging and gRPC-coded errors, and are throttled to 4 per second:
+// Cloudflare allows 1200 requests per 5 minutes per user, and going over
+// blocks every call from that user for the rest of the window, which outlasts
+// the provisioning retries. baseURL overrides the Cloudflare API URL when
+// non-empty.
 func New(ctx context.Context, accountID, apiToken, apiKey, email, baseURL string) (*Client, error) {
 	var authHeaders map[string]string
 	switch {
@@ -89,7 +97,7 @@ func New(ctx context.Context, accountID, apiToken, apiKey, email, baseURL string
 	if err != nil {
 		return nil, fmt.Errorf("create HTTP client: %w", err)
 	}
-	baseHTTPClient, err := uhttp.NewBaseHttpClientWithContext(ctx, httpClient)
+	baseHTTPClient, err := uhttp.NewBaseHttpClientWithContext(ctx, httpClient, uhttp.WithRateLimiter(requestsPerSecond, time.Second))
 	if err != nil {
 		return nil, fmt.Errorf("create base HTTP client: %w", err)
 	}
