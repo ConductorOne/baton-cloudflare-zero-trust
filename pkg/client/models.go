@@ -125,10 +125,10 @@ type ScopeObject struct {
 	Key string `json:"key"`
 }
 
-// NewResourceGroupForAccount returns a resource group covering every resource
-// in the account.
-func NewResourceGroupForAccount(accountID string) ResourceGroup {
-	key := fmt.Sprintf("com.cloudflare.api.account.%s", accountID)
+// AccountResourceGroup returns a resource group covering every resource in the
+// client's account.
+func (c *Client) AccountResourceGroup() ResourceGroup {
+	key := fmt.Sprintf("com.cloudflare.api.account.%s", c.accountID)
 	return ResourceGroup{
 		Name: key,
 		Meta: map[string]string{

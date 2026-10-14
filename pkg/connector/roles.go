@@ -18,7 +18,6 @@ import (
 type roleBuilder struct {
 	resourceType *v2.ResourceType
 	client       *client.Client
-	accountId    string
 }
 
 // roleAssignmentEntitlement is the slug of the single assignment entitlement
@@ -143,7 +142,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 
 		newPolicy := client.Policy{
 			PermissionGroups: []client.PermissionGroup{{ID: group.ID}},
-			ResourceGroups:   []client.ResourceGroup{client.NewResourceGroupForAccount(r.accountId)},
+			ResourceGroups:   []client.ResourceGroup{r.client.AccountResourceGroup()},
 			Access:           "allow",
 		}
 
@@ -296,10 +295,9 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 	return nil, nil
 }
 
-func newRoleBuilder(c *client.Client, accountId string) *roleBuilder {
+func newRoleBuilder(c *client.Client) *roleBuilder {
 	return &roleBuilder{
 		resourceType: roleResourceType,
 		client:       c,
-		accountId:    accountId,
 	}
 }

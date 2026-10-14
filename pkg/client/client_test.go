@@ -66,7 +66,10 @@ func TestValidateBaseURL(t *testing.T) {
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := New(ctx, "acct", "", "", "", "")
+	_, err := New(ctx, "", "token", "", "", "")
+	require.ErrorIs(t, err, ErrMissingAccountID)
+
+	_, err = New(ctx, "acct", "", "", "", "")
 	require.Error(t, err, "missing credentials")
 
 	_, err = New(ctx, "acct", "", "key", "", "")
@@ -193,7 +196,7 @@ func TestClientRejectsUnsuccessfulEnvelope(t *testing.T) {
 	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
 	require.NoError(t, err)
 
-	_, err = c.AccessKeysConfig(context.Background())
+	_, err = c.VerifyAccess(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "something went wrong")
 }
@@ -222,7 +225,7 @@ func TestClientAuthHeaders(t *testing.T) {
 
 			c, err := New(context.Background(), "acct", tt.token, tt.key, tt.email, server.URL)
 			require.NoError(t, err)
-			_, err = c.AccessKeysConfig(context.Background())
+			_, err = c.VerifyAccess(context.Background())
 			require.NoError(t, err)
 		})
 	}
@@ -286,13 +289,13 @@ func TestUpdateAccountMemberRequiresRolesOrPolicies(t *testing.T) {
 	require.NoError(t, err)
 
 	_, _, err = c.UpdateAccountMember(context.Background(), "m1", AccountMember{})
-	require.ErrorIs(t, err, ErrMissingMemberRolesOrPolicies)
+	require.ErrorIs(t, err, ErrMemberRolesXorPolicies)
 
 	_, _, err = c.UpdateAccountMember(context.Background(), "m1", AccountMember{
 		Roles:    []AccountRole{{ID: "r1"}},
 		Policies: []Policy{{Access: "allow"}},
 	})
-	require.ErrorIs(t, err, ErrMissingMemberRolesOrPolicies)
+	require.ErrorIs(t, err, ErrMemberRolesXorPolicies)
 }
 
 func TestExtractRateLimit(t *testing.T) {
@@ -437,7 +440,7 @@ func TestMalformedRateLimitHeaderDoesNotFailRequest(t *testing.T) {
 
 	c, err := New(context.Background(), "acct", "token", "", "", server.URL)
 	require.NoError(t, err)
-	_, err = c.AccessKeysConfig(context.Background())
+	_, err = c.VerifyAccess(context.Background())
 	require.NoError(t, err)
 }
 

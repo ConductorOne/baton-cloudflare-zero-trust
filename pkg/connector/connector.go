@@ -12,8 +12,7 @@ import (
 )
 
 type Connector struct {
-	client    *client.Client
-	accountId string
+	client *client.Client
 }
 
 // ResourceSyncers returns a ResourceSyncerV2 for each resource type that should be synced from the upstream service.
@@ -21,7 +20,7 @@ func (d *Connector) ResourceSyncers(ctx context.Context) []connectorbuilder.Reso
 	return []connectorbuilder.ResourceSyncerV2{
 		newUserBuilder(d.client),
 		newGroupBuilder(d.client),
-		newRoleBuilder(d.client, d.accountId),
+		newRoleBuilder(d.client),
 	}
 }
 
@@ -36,7 +35,7 @@ func (d *Connector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 // Validate is called to ensure that the connector is properly configured. It should exercise any API credentials
 // to be sure that they are valid.
 func (d *Connector) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, err := d.client.AccessKeysConfig(ctx)
+	_, err := d.client.VerifyAccess(ctx)
 	if err != nil {
 		return nil, wrapError(err, "failed to validate access keys config")
 	}
@@ -52,8 +51,7 @@ func New(ctx context.Context, ac *cfg.CloudflareZeroTrust, _ *cli.ConnectorOpts)
 	}
 
 	return &Connector{
-		client:    c,
-		accountId: ac.AccountId,
+		client: c,
 	}, nil, nil
 }
 

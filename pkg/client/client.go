@@ -45,16 +45,10 @@ const defaultBaseURL = "https://api.cloudflare.com/client/v4"
 // 5 minutes per user.
 const requestsPerSecond = 4
 
-const (
-	errMissingAccountID             = "required missing account ID"
-	errMissingMemberID              = "required missing member ID"
-	errMissingMemberRolesOrPolicies = "account member must have either roles or policies, not both"
-)
-
 var (
-	ErrMissingAccountID             = errors.New(errMissingAccountID)
-	ErrMissingMemberID              = errors.New(errMissingMemberID)
-	ErrMissingMemberRolesOrPolicies = errors.New(errMissingMemberRolesOrPolicies)
+	ErrMissingAccountID       = errors.New("required missing account ID")
+	ErrMissingMemberID        = errors.New("required missing member ID")
+	ErrMemberRolesXorPolicies = errors.New("account member must have either roles or policies, not both")
 )
 
 // Client calls the Cloudflare API for a single account.
@@ -73,6 +67,10 @@ type Client struct {
 // the provisioning retries. baseURL overrides the Cloudflare API URL when
 // non-empty.
 func New(ctx context.Context, accountID, apiToken, apiKey, email, baseURL string) (*Client, error) {
+	if accountID == "" {
+		return nil, ErrMissingAccountID
+	}
+
 	var authHeaders map[string]string
 	switch {
 	case apiToken != "":
@@ -124,10 +122,6 @@ type requestOptions struct {
 // paging info. Path segments are escaped here. The returned annotations carry
 // the response's rate-limit data and are set even when the call fails.
 func (c *Client) doRequest(ctx context.Context, method string, path []string, opts requestOptions, result any) (*resultInfo, annotations.Annotations, error) {
-	if c.accountID == "" {
-		return nil, nil, ErrMissingAccountID
-	}
-
 	segments := []string{"accounts", url.PathEscape(c.accountID)}
 	for _, segment := range path {
 		segments = append(segments, url.PathEscape(segment))
@@ -183,11 +177,11 @@ func (c *Client) doRequest(ctx context.Context, method string, path []string, op
 	return env.ResultInfo, annos, nil
 }
 
-// AccessKeysConfig reads the account's Access key rotation settings to verify
-// the credentials and account ID. The settings themselves are not used.
+// VerifyAccess checks the credentials and account ID by reading the account's
+// Access key rotation settings. The settings themselves are not used.
 // GET /accounts/{account_id}/access/keys
 // Permission: Account Settings Read.
-func (c *Client) AccessKeysConfig(ctx context.Context) (annotations.Annotations, error) {
+func (c *Client) VerifyAccess(ctx context.Context) (annotations.Annotations, error) {
 	_, annos, err := c.doRequest(ctx, http.MethodGet, []string{"access", "keys"}, requestOptions{}, nil)
 	if err != nil {
 		return annos, fmt.Errorf("get access keys config: %w", err)
@@ -260,7 +254,7 @@ func (c *Client) UpdateAccountMember(ctx context.Context, memberID string, membe
 		return AccountMember{}, nil, ErrMissingMemberID
 	}
 	if (len(member.Roles) > 0) == (len(member.Policies) > 0) {
-		return AccountMember{}, nil, ErrMissingMemberRolesOrPolicies
+		return AccountMember{}, nil, ErrMemberRolesXorPolicies
 	}
 
 	var updated AccountMember
