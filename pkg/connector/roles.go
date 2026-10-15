@@ -150,7 +150,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 			Policies: append(account.Policies, newPolicy),
 		})
 		if err != nil {
-			return nil, err
+			return nil, wrapError(err, "failed to update account member")
 		}
 
 		l.Debug("Role has been created.",
@@ -172,7 +172,7 @@ func (r *roleBuilder) Grant(ctx context.Context, principal *v2.Resource, entitle
 		Roles: roles,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err, "failed to update account member")
 	}
 
 	l.Debug("Role has been created.",
@@ -260,7 +260,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 			Policies: policies,
 		})
 		if err != nil {
-			return nil, err
+			return nil, wrapError(err, "failed to update account member")
 		}
 
 		l.Debug("Role has been revoked.",
@@ -284,7 +284,7 @@ func (r *roleBuilder) Revoke(ctx context.Context, grantToRevoke *v2.Grant) (anno
 		Roles: roles,
 	})
 	if err != nil {
-		return nil, err
+		return nil, wrapError(err, "failed to update account member")
 	}
 
 	l.Debug("Role has been revoked.",
