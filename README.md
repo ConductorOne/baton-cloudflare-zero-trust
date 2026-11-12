@@ -1,6 +1,6 @@
 # `baton-cloudflare-zero-trust` [![Go Reference](https://pkg.go.dev/badge/github.com/conductorone/baton-cloudflare-zero-trust.svg)](https://pkg.go.dev/github.com/conductorone/baton-cloudflare-zero-trust) ![ci](https://github.com/conductorone/baton-cloudflare-zero-trust/actions/workflows/ci.yaml/badge.svg)
 
-`baton-cloudflare-zero-trust` is a connector for Cloudflare Zero Trust built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It communicates with the Cloudflare API to sync data about users and access groups in your Cloudflare Zero Trust organization.
+`baton-cloudflare-zero-trust` is a connector for Cloudflare Zero Trust built using the [Baton SDK](https://github.com/conductorone/baton-sdk). It communicates with the Cloudflare API to sync data about users, access groups and roles in your Cloudflare Zero Trust organization.
 Check out [Baton](https://github.com/conductorone/baton) to learn more about the project in general.
 
 # Getting Started
@@ -8,23 +8,24 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more about the
 ## Prerequisites
 
 - Access to the Cloudflare Zero Trust dashboard.
-- API key. To get the API key log in to the Cloudflare dashboard and go to User Profile -> API Tokens -> View button of Global API Key
-- Email - email used to login to Cloudflare dashboard.
-- Account ID
+- Account ID.
+- One of the following credential sets:
+  - API token. Create one in the Cloudflare dashboard under User Profile -> API Tokens -> Create Token.
+  - Global API key and the email used to log in to the Cloudflare dashboard. To get the API key, go to User Profile -> API Tokens -> View button of Global API Key.
 
 ## brew
 
 ```
 brew install conductorone/baton/baton conductorone/baton/baton-cloudflare-zero-trust
 
-BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_KEY=cloudflareApiKey BATON_EMAIL=yourEmail baton-cloudflare-zero-trust
+BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_TOKEN=cloudflareApiToken baton-cloudflare-zero-trust
 baton resources
 ```
 
 ## docker
 
 ```
-docker run --rm -v $(pwd):/out -e BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_KEY=cloudflareApiKey BATON_EMAIL=yourEmail public.ecr.aws/conductorone/baton-cloudflare-zero-trust:latest -f "/out/sync.c1z"
+docker run --rm -v $(pwd):/out -e BATON_ACCOUNT_ID=cloudflareAccountId -e BATON_API_TOKEN=cloudflareApiToken public.ecr.aws/conductorone/baton-cloudflare-zero-trust:latest -f "/out/sync.c1z"
 docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
 ```
 
@@ -34,7 +35,7 @@ docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c
 go install github.com/conductorone/baton/cmd/baton@main
 go install github.com/conductorone/baton-cloudflare-zero-trust/cmd/baton-cloudflare-zero-trust@main
 
-BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_KEY=cloudflareApiKey BATON_EMAIL=yourEmail baton-cloudflare-zero-trust
+BATON_ACCOUNT_ID=cloudflareAccountId BATON_API_TOKEN=cloudflareApiToken baton-cloudflare-zero-trust
 baton resources
 ```
 
@@ -44,6 +45,7 @@ baton resources
 
 - Users
 - Access Groups
+- Roles
 
 # Contributing, Support and Issues
 
