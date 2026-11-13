@@ -234,11 +234,7 @@ func (g *groupBuilder) GrantsForResourceType(ctx context.Context, _ string, opts
 
 	var rv []*v2.Grant
 	for i := range groups {
-		grants, err := g.memberGrants(&groups[i], members)
-		if err != nil {
-			return nil, nil, err
-		}
-		rv = append(rv, grants...)
+		rv = append(rv, g.memberGrants(&groups[i], members)...)
 	}
 
 	if nextMemberPage == "" {
@@ -292,7 +288,7 @@ func (g *groupBuilder) storedGroups(ctx context.Context, opts rs.SyncOpAttrs) ([
 
 // memberGrants returns the grants of group's member entitlement to each of
 // members the group's rules admit.
-func (g *groupBuilder) memberGrants(group *client.AccessGroup, members []*client.AccountMember) ([]*v2.Grant, error) {
+func (g *groupBuilder) memberGrants(group *client.AccessGroup, members []*client.AccountMember) []*v2.Grant {
 	groupResource := &v2.Resource{Id: &v2.ResourceId{ResourceType: g.resourceType.Id, Resource: group.ID}}
 	directIncludeRules, _ := splitIncludeRules(group.Include)
 
@@ -307,19 +303,8 @@ func (g *groupBuilder) memberGrants(group *client.AccessGroup, members []*client
 			continue
 		}
 
-		user := client.AccessUser{
-			ID:         member.User.ID,
-			Name:       fmt.Sprintf("%s %s", member.User.FirstName, member.User.LastName),
-			Email:      member.User.Email,
-			AccessSeat: func(seat bool) *bool { return &seat }(false),
-		}
-		if !matchesDirectRules(group, directIncludeRules, user) {
+		if !matchesDirectRules(group, directIncludeRules, client.AccessUser{Email: member.User.Email}) {
 			continue
-		}
-
-		ur, err := newUserResource(user)
-		if err != nil {
-			return nil, wrapError(err, "failed to create user resource")
 		}
 
 		var grantOpts []grant.GrantOption
@@ -328,13 +313,13 @@ func (g *groupBuilder) memberGrants(group *client.AccessGroup, members []*client
 		// other members too, and removing a group's only Include rule is
 		// rejected by Cloudflare. Marking the rest immutable keeps C1 from
 		// offering a revoke that Revoke would refuse.
-		if include, outcome := revokeDecision(group, user.Email); outcome != revokeRemoveRule || len(include) == 0 {
+		if include, outcome := revokeDecision(group, member.User.Email); outcome != revokeRemoveRule || len(include) == 0 {
 			grantOpts = append(grantOpts, grant.WithAnnotation(&v2.GrantImmutable{}))
 		}
-		rv = append(rv, grant.NewGrant(groupResource, memberRole, ur.Id, grantOpts...))
+		rv = append(rv, grant.NewGrant(groupResource, memberRole, &v2.ResourceId{ResourceType: userResourceType.Id, Resource: member.User.ID}, grantOpts...))
 	}
 
-	return rv, nil
+	return rv
 }
 
 // nestedGroupGrants represents each nested-group Include rule as an
