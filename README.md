@@ -10,8 +10,8 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more about the
 - Access to the Cloudflare Zero Trust dashboard.
 - Account ID.
 - One of the following credential sets:
-  - API token. Create one in the Cloudflare dashboard under User Profile -> API Tokens -> Create Token.
-  - Global API key and the email used to log in to the Cloudflare dashboard. To get the API key, go to User Profile -> API Tokens -> View button of Global API Key.
+  - API token. Create one in the Cloudflare dashboard under Profile -> API Tokens -> Create Token.
+  - Global API key and the email used to log in to the Cloudflare dashboard. To get the API key, go to Profile -> API Tokens -> View button of Global API Key.
 
 ## brew
 
