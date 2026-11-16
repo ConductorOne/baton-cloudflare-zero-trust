@@ -139,30 +139,36 @@ A user with **Super Administrator** access in Cloudflare Zero Trust must perform
   Click **API Tokens** on the left side, then click **Create Token**.
   </Step>
   <Step>
-  At the bottom of the page, in the **Custom Token** area, click **Get started**.
+  Under **Policies**, select **Start from scratch**, then select **Start with an Account policy**.
   </Step>
   <Step>
-  Fill out the **Create Custom Token** page as follows:
+  Fill out the token as follows:
 
     1. Give the API token a name, such as **C1**
 
-    2. Set the appropriate permissions for the API token:
+    2. Select the Cloudflare account you're connecting to C1.
 
-       If you want to use C1 to provision Cloudflare Zero Trust groups and roles, set:
+    3. Add the permissions for the API token. The permissions are grouped into collapsed
+       categories; expand the category listed below, or type the permission name in
+       **Search for permission groups**.
 
-         - Account -> Account Settings -> Read
-         - Account -> Access: Organizations, Identity Providers, and Groups -> Edit
-         - Account -> Access: Apps and Policies -> Read
-         - Account -> Memberships -> Edit
+       If you want to use C1 to provision Cloudflare Zero Trust groups and roles, add:
 
-       Otherwise, set:
+         - **Cloudflare One / Zero Trust**:
+           - Access: Organizations, Identity Providers, and Groups -> Edit
+           - Access: Users -> Read
+         - **Account & Billing**:
+           - Account Settings -> Edit
 
-         - Account -> Account Settings -> Read
-         - Account -> Access: Organizations, Identity Providers, and Groups -> Read
-         - Account -> Memberships -> Read
-         - Account -> Access: Apps and Policies -> Read
+       Otherwise, add:
 
-    3. Click **Continue to summary**.
+         - **Cloudflare One / Zero Trust**:
+           - Access: Organizations, Identity Providers, and Groups -> Read
+           - Access: Users -> Read
+         - **Account & Billing**:
+           - Account Settings -> Read
+
+    4. Click **Continue to summary**.
   </Step>
   <Step>
   Click **Create Token** and copy the token generated for you.

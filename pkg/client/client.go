@@ -180,7 +180,7 @@ func (c *Client) doRequest(ctx context.Context, method string, path []string, op
 // VerifyAccess checks the credentials and account ID by reading the account's
 // Access key rotation settings. The settings themselves are not used.
 // GET /accounts/{account_id}/access/keys
-// Permission: Account Settings Read.
+// Permission: Access: Organizations, Identity Providers, and Groups Read.
 func (c *Client) VerifyAccess(ctx context.Context) (annotations.Annotations, error) {
 	_, annos, err := c.doRequest(ctx, http.MethodGet, []string{"access", "keys"}, requestOptions{}, nil)
 	if err != nil {
@@ -192,7 +192,7 @@ func (c *Client) VerifyAccess(ctx context.Context) (annotations.Annotations, err
 // ListAccessUsers returns one page of Zero Trust Access users and the token
 // for the next page ("" after the last page).
 // GET /accounts/{account_id}/access/users
-// Permission: Access: Apps and Policies Read.
+// Permission: Access: Users Read.
 func (c *Client) ListAccessUsers(ctx context.Context, pageToken string) ([]*AccessUser, string, annotations.Annotations, error) {
 	page, err := parsePageToken(pageToken)
 	if err != nil {
@@ -211,7 +211,7 @@ func (c *Client) ListAccessUsers(ctx context.Context, pageToken string) ([]*Acce
 // ListAccountMembers returns one page of account members and the token for
 // the next page ("" after the last page).
 // GET /accounts/{account_id}/members
-// Permission: Memberships Read.
+// Permission: Account Settings Read.
 func (c *Client) ListAccountMembers(ctx context.Context, pageToken string) ([]*AccountMember, string, annotations.Annotations, error) {
 	page, err := parsePageToken(pageToken)
 	if err != nil {
@@ -231,7 +231,7 @@ func (c *Client) ListAccountMembers(ctx context.Context, pageToken string) ([]*A
 // callers modify and write the member back. An empty member ID would address
 // the member collection instead of a member, so it is rejected.
 // GET /accounts/{account_id}/members/{member_id}
-// Permission: Memberships Read.
+// Permission: Account Settings Read.
 func (c *Client) AccountMember(ctx context.Context, memberID string) (AccountMember, annotations.Annotations, error) {
 	if memberID == "" {
 		return AccountMember{}, nil, ErrMissingMemberID
@@ -248,7 +248,7 @@ func (c *Client) AccountMember(ctx context.Context, memberID string) (AccountMem
 // UpdateAccountMember replaces an account member's roles or policies. The
 // member must carry exactly one of the two.
 // PUT /accounts/{account_id}/members/{member_id}
-// Permission: Memberships Write.
+// Permission: Account Settings Write.
 func (c *Client) UpdateAccountMember(ctx context.Context, memberID string, member AccountMember) (AccountMember, annotations.Annotations, error) {
 	if memberID == "" {
 		return AccountMember{}, nil, ErrMissingMemberID
@@ -325,7 +325,7 @@ func (c *Client) UpdateAccessGroupInclude(ctx context.Context, group *AccessGrou
 // ListAccountRoles returns one page of account roles and the token for the
 // next page ("" after the last page).
 // GET /accounts/{account_id}/roles
-// Permission: Memberships Read.
+// Permission: Account Settings Read.
 func (c *Client) ListAccountRoles(ctx context.Context, pageToken string) ([]*AccountRole, string, annotations.Annotations, error) {
 	page, err := parsePageToken(pageToken)
 	if err != nil {
@@ -349,7 +349,7 @@ func (c *Client) ListAccountRoles(ctx context.Context, pageToken string) ([]*Acc
 // the role's name is used to find the equivalent group.
 // GET /accounts/{account_id}/roles/{role_id}
 // GET /accounts/{account_id}/iam/permission_groups?name={role_name}
-// Permission: Memberships Read.
+// Permission: Account Settings Read.
 func (c *Client) RolePermissionGroup(ctx context.Context, roleID string) (PermissionGroup, annotations.Annotations, error) {
 	var role AccountRole
 	_, annos, err := c.doRequest(ctx, http.MethodGet, []string{"roles", roleID}, requestOptions{}, &role)

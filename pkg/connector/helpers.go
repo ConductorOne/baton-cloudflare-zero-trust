@@ -20,8 +20,7 @@ func annotationsForUserResourceType() annotations.Annotations {
 	annos.Update(&v2.SkipEntitlements{})
 	annos.Update(capabilityPermissions(
 		"Account Settings Read",
-		"Access: Apps and Policies Read",
-		"Memberships Read",
+		"Access: Users Read",
 	))
 	return annos
 }
@@ -50,8 +49,7 @@ func annotationsForRoleResourceType() annotations.Annotations {
 	annos.Update(&v2.SkipGrants{})
 	annos.Update(capabilityPermissions(
 		"Account Settings Read",
-		"Memberships Read",
-		"Memberships Write",
+		"Account Settings Write",
 	))
 	return annos
 }
