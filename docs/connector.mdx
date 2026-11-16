@@ -79,8 +79,9 @@ When the outer group also has `Require` or `Exclude` rules that the connector
 evaluates, nested membership is not reported for that group, because those
 rules cannot be applied to the members the nested group pulls in. C1 reports
 only the members the outer group's own `email`, `email_domain` and `everyone`
-rules match. A `Require` list consisting only of `everyone`, or only of
-skipped rules, does not count as a restriction.
+rules match. Rules the connector skips do not count as restrictions, in
+either `Require` or `Exclude`, and neither does an `everyone` rule in
+`Require`.
 
 ### Granting and revoking group membership
 
