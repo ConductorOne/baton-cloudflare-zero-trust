@@ -23,9 +23,6 @@
               },
               {
                 "permission": "Access: Organizations, Identity Providers, and Groups Write"
-              },
-              {
-                "permission": "Memberships Read"
               }
             ]
           }
@@ -45,9 +42,6 @@
           },
           {
             "permission": "Access: Organizations, Identity Providers, and Groups Write"
-          },
-          {
-            "permission": "Memberships Read"
           }
         ]
       }
@@ -73,10 +67,7 @@
                 "permission": "Account Settings Read"
               },
               {
-                "permission": "Memberships Read"
-              },
-              {
-                "permission": "Memberships Write"
+                "permission": "Account Settings Write"
               }
             ]
           }
@@ -92,10 +83,7 @@
             "permission": "Account Settings Read"
           },
           {
-            "permission": "Memberships Read"
-          },
-          {
-            "permission": "Memberships Write"
+            "permission": "Account Settings Write"
           }
         ]
       }
@@ -118,10 +106,7 @@
                 "permission": "Account Settings Read"
               },
               {
-                "permission": "Access: Apps and Policies Read"
-              },
-              {
-                "permission": "Memberships Read"
+                "permission": "Access: Users Read"
               }
             ]
           }
@@ -136,10 +121,7 @@
             "permission": "Account Settings Read"
           },
           {
-            "permission": "Access: Apps and Policies Read"
-          },
-          {
-            "permission": "Memberships Read"
+            "permission": "Access: Users Read"
           }
         ]
       }

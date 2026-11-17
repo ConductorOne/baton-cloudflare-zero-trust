@@ -24,7 +24,6 @@ var (
 				"Account Settings Read",
 				"Access: Organizations, Identity Providers, and Groups Read",
 				"Access: Organizations, Identity Providers, and Groups Write",
-				"Memberships Read",
 			),
 		),
 	}
