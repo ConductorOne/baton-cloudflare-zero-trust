@@ -11,7 +11,7 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more about the
 - Account ID.
 - One of the following credential sets:
   - API token. Create one in the Cloudflare dashboard under Profile -> API Tokens -> Create Token.
-  - Global API key and the email used to log in to the Cloudflare dashboard. To get the API key, go to Profile -> API Tokens -> View button of Global API Key.
+  - Global API key and the email used to log in to the Cloudflare dashboard. To get the API key, go to Profile -> API Tokens -> View button of Global API Key. The connector uses the API token by default, so also set `BATON_AUTH_METHOD=api-key-group` (or `--auth-method api-key-group`).
 
 ## brew
 
