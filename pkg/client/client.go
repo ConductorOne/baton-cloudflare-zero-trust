@@ -288,6 +288,7 @@ func (c *Client) ListAccessGroups(ctx context.Context, pageToken string) ([]*Acc
 // Grant and Revoke modify and write the group back.
 // GET /accounts/{account_id}/access/groups/{group_id}
 // Permission: Access: Organizations, Identity Providers, and Groups Read.
+// A missing group returns codes.NotFound.
 func (c *Client) GetAccessGroup(ctx context.Context, groupID string) (AccessGroup, annotations.Annotations, error) {
 	var group AccessGroup
 	_, annos, err := c.doRequest(ctx, http.MethodGet, []string{"access", "groups", groupID}, requestOptions{noCache: true}, &group)
@@ -303,6 +304,7 @@ func (c *Client) GetAccessGroup(ctx context.Context, groupID string) (AccessGrou
 // lists.
 // PUT /accounts/{account_id}/access/groups/{group_id}
 // Permission: Access: Organizations, Identity Providers, and Groups Write.
+// A missing group returns codes.NotFound.
 func (c *Client) UpdateAccessGroupInclude(ctx context.Context, group *AccessGroup, include []interface{}) (annotations.Annotations, error) {
 	if group.ID == "" {
 		return nil, errors.New("access group ID cannot be empty")

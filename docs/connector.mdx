@@ -95,7 +95,9 @@ member of the group. In `Include` the effect runs the other way: a member
 admitted only by such a rule is not reported at all. Every group carrying such a rule is logged at sync
 time, and its rules are listed on the group's profile in C1 under
 `include_rules` / `require_rules` / `exclude_rules`, so you can see exactly
-which conditions were not applied.
+which conditions were not applied. Each list shows its first 25 rules, and
+`include_rule_count` / `require_rule_count` / `exclude_rule_count` give the
+full number.
 
 For those groups, confirm membership in Cloudflare before relying on C1 for
 an access review.
@@ -137,11 +139,11 @@ reporting a change it did not make:
 | :--- | :--- |
 | Grant to someone a `Require` or `Exclude` rule keeps out | **Refused.** The rule would be written but would grant nothing, and C1 would never hold the grant, so the rule would stay in your policy unnoticed. |
 | Grant to someone already admitted by a broad rule (`everyone`, `email_domain`) | **No change.** They already have access, and adding a rule naming them would only leave a redundant one behind. |
-| Revoke from someone whose access comes from a broad rule | **Refused.** That rule governs other members too, so it cannot be edited on one person's behalf. Change it in Cloudflare instead. |
-| Revoke the last `email` rule in a group's `Include` list | **Refused.** Cloudflare rejects a group with an empty `Include` list. Delete or edit the group in Cloudflare instead. |
+| Revoke from someone whose access comes from a broad rule | **Not offered.** That rule governs other members too, so it cannot be edited on one person's behalf, and C1 marks the grant as not revocable. Change the rule in Cloudflare instead. |
+| Revoke from someone whose `email` rule is the only rule in a group's `Include` list | **Not offered.** Cloudflare rejects a group with an empty `Include` list, so C1 marks the grant as not revocable. Delete or edit the group in Cloudflare instead. |
 | Revoke from someone who is not a member | **No change.** |
 
-Membership that comes from a nested Access group cannot be revoked here
+Membership that comes from a nested Access group is not revocable here
 either: the member belongs to the referenced group, not to this one.
 
 ## Gather Cloudflare Zero Trust credentials

@@ -18,8 +18,11 @@ var (
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
 		// SkipEntitlements: the "member" entitlement is declared once via
 		// StaticEntitlements rather than per-resource Entitlements().
+		// TypeScopedGrants: grants come from GrantsForResourceType, once for
+		// all groups.
 		Annotations: annotations.New(
 			&v2.SkipEntitlements{},
+			&v2.TypeScopedGrants{},
 			capabilityPermissions(
 				"Account Settings Read",
 				"Access: Organizations, Identity Providers, and Groups Read",

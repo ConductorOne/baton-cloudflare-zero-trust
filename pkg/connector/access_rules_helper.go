@@ -175,8 +175,8 @@ func hasEvaluableRule(rules []interface{}) bool {
 
 // matchesDirectRules is the single definition of membership this connector
 // works from: an Include rule must admit the user and Require/Exclude must not
-// keep them out. Grants() calls it per member with the split rules it already
-// computed; isMember is the convenience form for callers holding a raw Include
+// keep them out. memberGrants calls it per member with the split rules it
+// already computed; isMember is the convenience form for callers holding a raw Include
 // list.
 //
 // Nested-group Include rules are deliberately outside this question. They are
@@ -237,8 +237,8 @@ func satisfiesRequireExclude(grp *client.AccessGroup, user client.AccessUser) bo
 // identities this connector cannot resolve ("group", "email_list", IdP
 // claims, service tokens). Those rules are skipped during evaluation, so a
 // group carrying one may report more members than Cloudflare would admit;
-// Grants() logs them so the gap is visible at sync time rather than only in
-// the docs. Contextual rules are excluded: skipping those is by design, not
+// the group list logs them so the gap is visible at sync time rather than
+// only in the docs. Contextual rules are excluded: skipping those is by design, not
 // a gap.
 func unresolvableIdentityRules(rules []interface{}) []string {
 	var described []string
